@@ -1,3 +1,4 @@
+#labels Phase-Design
 If you look into diffo_0.1.0.zip, there are two scripts: diffo.bat and diffo_sample.bat.
 
 First one is for java-related settings and executable command file.
