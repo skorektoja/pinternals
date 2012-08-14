@@ -1,0 +1,13 @@
+If you look into diffo_0.1.0.zip, there are two scripts: diffo.bat and diffo_sample.bat.
+
+First one is for java-related settings and executable command file.
+
+Diffo_sample.bat shows how you can call application:
+
+  * set PI-specific options (SID, host, username, password)
+  * list the actions (commands), which are:
+    # start -- open local database and start new session
+    # refresh -- ask your PI through SimpleQuery or another interface
+    # finish -- close session and database
+
+(TODO: other options)
