@@ -1,6 +1,5 @@
 package com.pinternals.diffo;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
@@ -8,9 +7,13 @@ import java.net.Proxy;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.logging.LogManager;
-import org.apache.commons.cli.*;
+
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.OptionBuilder;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.PosixParser;
 import org.xml.sax.SAXException;
 
 import com.pinternals.diffo.impl.DifferencerNode;
@@ -98,7 +101,6 @@ public class Main {
 			System.err.println("Exception:" + e.getMessage());
 			e.printStackTrace();
 		}
-		
 	}
 
 	public static void sample (String dbname) {
@@ -140,7 +142,7 @@ public class Main {
 		ArrayList<DiffItem> al;
 		al = d.list(p, Side.Repository, "XI_TRAFO");
 		al.addAll(d.list(p, Side.Repository, "MAPPING"));
-//		al = d.list(p, Side.Directory, "MappingRelation");
+		al = d.list(p, Side.Directory, "MappingRelation");
 		for (DiffItem x: al) {
 			DifferencerNode n = new DifferencerNode(x);
 			boolean b = n.refresh(d, false);
