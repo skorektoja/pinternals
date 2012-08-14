@@ -1,0 +1,1 @@
+start C:\distrib\sqlite\sqlite3.exe diffo.db
