@@ -7,6 +7,7 @@ import java.net.MalformedURLException;
 import java.net.Proxy;
 import java.net.URL;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -25,6 +26,7 @@ import com.pinternals.diffo.PiEntity.SQEntityAttr;
 
 public class PiHost implements Runnable {
 	private static Logger log = Logger.getLogger(Diffo.class.getName());
+	private static int MAX_RETR_ATTEMPTS = 100;
 
 	/** Для каждого хоста может быть свой прокси, поэтому пусть будет здесь */
 	public String basicAuth=null, uname=null, passwd=null;
@@ -34,6 +36,7 @@ public class PiHost implements Runnable {
 	public Long host_id = new Long(-1);
 //	private Diffo diffo = null;
 	protected Connection hostdb = null;
+	String hostdbfn = null; 
 	private PreparedStatement psNewOV = null, psGP = null; 
 
 	public URL uroot;
@@ -58,6 +61,7 @@ public class PiHost implements Runnable {
 //		this.uaf_schxml = new URL(sURL + Side.C_AF_SCH_XML);
 		this.host_id = host_id;
 		this.hostdb = hostdb;
+		this.hostdbfn = "diffo.DPI.6.db";
 		psNewOV = DUtil.prepareStatement(hostdb, "hosql_insOV_dirty");
 		psGP = DUtil.prepareStatement(hostdb, "hosql_getpayload");
 		timeoutMillis=30000;
@@ -166,7 +170,6 @@ public class PiHost implements Runnable {
 	public PiEntity getEntity(Side side, String intname) {
 		return entities.get(side.txt()+"|"+intname);
 	}
-
 
 //	private boolean ping_service(URL u, boolean get, boolean auth, String failed) {
 //		try {
@@ -325,7 +328,7 @@ public class PiHost implements Runnable {
 		URL u = Side.askCcStatus(uroot, "status", oid);
 		HttpURLConnection h = establishGET(u, true);
 		boolean b = false;
-		assert cpacache!=null;
+		assert cpacache!=null : "CPA cache is not initialized";
 		
 		askAfSch();
 		if ("1" != "9") return true;
@@ -350,6 +353,7 @@ public class PiHost implements Runnable {
 		return b;
 	}
 	public void addObject(PiObject o, long session_id, boolean batch) throws SQLException {
+		// TODO: написать тексты для ассертов
 		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
 		assert psNewOV != null;
 //		hosql_insOV_dirty=INSERT INTO objlink (object_ref,object_id,version_id,session_id,url,is_dirty) \
@@ -379,13 +383,19 @@ public class PiHost implements Runnable {
 	protected boolean download(boolean check) throws SQLException, MalformedURLException, IOException {
 		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
 		
-		PreparedStatement psPut = DUtil.prepareStatement(hostdb, "hosql_undirty");
-		assert psPut != null : "host DB error when prepate update clause";
+		PreparedStatement psPut = DUtil.prepareStatement(hostdb, "hosql_undirty")
+				,psInc = DUtil.prepareStatement(hostdb, "hosql_incdirty") ;
+		assert psPut != null : "host DB error when prepare update clause";
 		ResultSet rs = DUtil.prepareStatement(hostdb, "hosql_getdirty").executeQuery();
-		int q = 0, errors = 0, ok=0;
+		int q=0, errors=0, ok=0, nonretr=0;
 		ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
 		while (rs.next()) {
-			baos.reset();
+			long is_dirty = rs.getLong(4);
+			assert is_dirty!=0 : "Attempt to retrieve already retrieved (is_dirty=0)";
+			if (is_dirty >= MAX_RETR_ATTEMPTS) {
+				nonretr++;
+				continue;
+			}
 			URL u = new URL(rs.getString(1));
 			long ref = rs.getLong(2);
 			byte []vid = rs.getBytes(3);
@@ -394,8 +404,12 @@ public class PiHost implements Runnable {
 			if (h.getResponseCode()!=HttpURLConnection.HTTP_OK) {
 				log.severe("HTTP client error " + h.getResponseCode() + " " + h.getURL());
 				h.disconnect();
+				// увеличиваем счётчик ошибок
+				DUtil.setStatementParams(psInc, ref, vid);
+				psInc.addBatch();
 				errors++;
 			} else {
+				baos.reset();
 				GZIPOutputStream gos = new GZIPOutputStream(baos);
 				int i = h.getInputStream().read(), z=0;
 				while (i!=-1) {
@@ -415,12 +429,17 @@ public class PiHost implements Runnable {
 			}
 			q++;
 		}
+		if (errors>0) {
+			psInc.executeBatch();
+			hostdb.commit();
+		}
 		if (ok>0) {
 			psPut.executeBatch();
 			hostdb.commit();
 		}
 
-		assert !check || q==dirtycnt : "dirty URLs counts are mismatch: now its " + q + " but registered before " + dirtycnt;
+		assert !check || q==dirtycnt : 
+			"dirty URLs counts are mismatch: now it is " + q + " but registered before " + dirtycnt;
 
 		if (q==0)
 			log.config(DUtil.format("piobject_download_empty",this.uroot.toExternalForm()));
@@ -435,5 +454,35 @@ public class PiHost implements Runnable {
 	protected ResultSet getPayload(long ref, byte[] version_id) throws SQLException {
 		return DUtil.setStatementParams(psGP, ref, version_id).executeQuery();
 		
+	}
+	public static boolean createHostDB(Connection hostcon) throws SQLException {
+		for (String s: DUtil.sqlKeySet) if (s.startsWith("hosql_init")) {
+			log.config(s);
+			DUtil.prepareStatement(hostcon, s).executeUpdate();
+			hostcon.commit();
+		}
+		return true;
+	}
+	public boolean migrateHostDB(String newDbFile) throws SQLException {
+		Connection newcon = DriverManager.getConnection("jdbc:sqlite:" + newDbFile);
+		newcon.setAutoCommit(false);
+		createHostDB(newcon);
+		newcon.close();
+
+		//IMPORTANT!!! главная база (куда аттачим) должна быть в автокоммите
+		//see http://stackoverflow.com/a/9119346/521359
+		//for DDL statement only it's required
+		hostdb.setAutoCommit(true);
+		PreparedStatement ps = DUtil.prepareStatement(hostdb, "hosql_migr_01_attach", newDbFile);
+		ps.executeUpdate();
+		hostdb.setAutoCommit(false);
+		// все DML-операции уже могут быть коммичены явно
+		ps = DUtil.prepareStatement(hostdb, "hosql_migr_02_clear");
+		ps.executeUpdate();
+		hostdb.commit();
+		ps = DUtil.prepareStatement(hostdb, "hosql_migr_03_objlink");
+		ps.executeUpdate();
+		hostdb.commit();
+		return true;
 	}
 }

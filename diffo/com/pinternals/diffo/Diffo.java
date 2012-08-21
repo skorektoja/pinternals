@@ -298,18 +298,15 @@ public class Diffo implements IDiffo, Cloneable {
 			hostdbn = dbfile.getAbsolutePath() + "." + sid + "." + l + ".db";
 		File hostdb = new File(hostdbn);
 		log.config(DUtil.format("addPiHost_hostfile", sid, hostdb.getAbsoluteFile(), hostdb.length()));
+		
 		Connection hostcon = null;
 		hostcon = DriverManager.getConnection("jdbc:sqlite:" + hostdb.getAbsolutePath());
 		hostcon.setAutoCommit(false);
 		boolean b = false;
 		rs = DUtil.prepareStatement(hostcon, "sql_page_count").executeQuery();
 		b = rs.next() && rs.getLong(1)!=0;
-		if (!b) {
-			for (String s: DUtil.sqlKeySet) if (s.startsWith("hosql_init")) {
-				log.config(s);
-				DUtil.prepareStatement(hostcon, s).executeUpdate();
-				hostcon.commit();
-			}
+		if (!b) { 
+			PiHost.createHostDB(hostcon);
 		}
 		PiHost p = new PiHost(this, sid, url, l, hostcon);
 		// читаем конфиг
@@ -517,7 +514,10 @@ public class Diffo implements IDiffo, Cloneable {
 //				p.getEntity(r, ""),
 			};
 		for (PiEntity e: reps) {
-			handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
+			if (e!=null)
+				handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
+			else
+				log.severe("Entity is null!");
 		}
 	}
 	
@@ -821,7 +821,7 @@ public class Diffo implements IDiffo, Cloneable {
 	public ArrayList<DiffItem> list (PiHost p, PiEntity el) throws SQLException, IOException {
 		assert p!=null && p.host_id!=0 : "PiHost isn't initialized";
 		assert p.entities !=null && p.entities.size() > 0 : "entities are empty";
-		assert el!=null && el.entity_id!=0;
+		assert el!=null && el.entity_id!=0 : "Entity is not refreshed yet (" + el + ")";
 		
 		ResultSet rs;
 		String r;
@@ -880,9 +880,14 @@ public class Diffo implements IDiffo, Cloneable {
 					n = sa[0];
 					s = sa[1];
 					break;
-				default: 			
-					n = "";
-					s = "";
+				case Directory:
+					assert sa!=null;
+					n = r.key;
+					s = null;
+					break;
+				default:
+					n = "UNKNOWN";
+					s = null;
 			}
 			hm.put("getObjectName", n);
 			hm.put("getObjectNamespace", s);
@@ -891,5 +896,4 @@ public class Diffo implements IDiffo, Cloneable {
 		ps.close();
 		return hm;
 	}
-
 }

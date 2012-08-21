@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -139,6 +140,7 @@ public class Main {
 	private static void transportCheck(Diffo d, PiHost p) 
 	throws SQLException, IOException, SAXException, ParseException {
 		d.refreshMeta(p, Side.Repository);
+		d.refreshMeta(p, Side.Directory);
 		ArrayList<DiffItem> al;
 		al = d.list(p, Side.Repository, "XI_TRAFO");
 		al.addAll(d.list(p, Side.Repository, "MAPPING"));
@@ -278,6 +280,11 @@ public class Main {
 						pih.setUserCredentials(uname, passwd);
 					}
 					transportCheck(d, pih);
+				} else if ("migrateHostDB".equals(a0)) {
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+					}
+					migrateHostDB(d, pih, "newHostDB");
 				} else
 					System.err.println("Unknown command: " + a0);
 			}
@@ -291,4 +298,9 @@ public class Main {
 			ex.printStackTrace();
 		}
 	}
+
+	static void migrateHostDB(Diffo d, PiHost p, String newdb) throws SQLException {
+		p.migrateHostDB(newdb);
+	}
+
 }
