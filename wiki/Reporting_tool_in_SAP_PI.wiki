@@ -1,0 +1,2 @@
+=Reporting tool in SAP PI=
+Diffo and differencer can solve not all the reporting needs (there are many), but it is a bridge between Repository, Configuration and Runtime-behaviour.
