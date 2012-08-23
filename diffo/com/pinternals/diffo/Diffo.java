@@ -659,6 +659,7 @@ public class Diffo implements IDiffo, Cloneable {
 	private void handleIndexRepositoryObjectsVersions(ArrayList<PiObject> objs, PiHost p, PiEntity e)
 	throws SQLException {
 		assert objs!=null && p!=null && e!=null;
+		log.entering(Diffo.class.getCanonicalName(), "handleIndexRepositoryObjectsVersions");
 		PreparedStatement sel = prepareStatement("sql_objrep_report", e.entity_id)
 			, del = prepareStatement("sql_objrep_del")
 			, deactV = prepareStatement("sql_ver_deactv")
@@ -685,15 +686,17 @@ public class Diffo implements IDiffo, Cloneable {
 		}
 
 		ResultSet rs = sel.executeQuery();
-		assert rs!=null;
+		assert rs!=null : "query 'sql_objrep_report' crashed to select";
 		int i, sapdeleted=0, sapalive=0;
 		SWCV swcv = null;
 
 		while (rs.next()) {
 			String txt = rs.getString(1);
 			byte[] oid = rs.getBytes(2), vid=rs.getBytes(3);
-
 			long swcref=rs.getLong(4), oref = rs.getLong(5);
+			if (log.isLoggable(Level.FINE))
+				log.fine(DUtil.format("sql_objrep_report", e.intname, txt, UUtil.getStringUUIDfromBytes(oid), UUtil.getStringUUIDfromBytes(vid), swcref, oref ));
+
 			ArrayList<PiObject> ol = hm.get(ByteBuffer.wrap(oid));
 			PiObject o = null;
 			swcv = null;
@@ -711,6 +714,8 @@ public class Diffo implements IDiffo, Cloneable {
 			if (txt.equals("CURRENT_LIVE") || txt.equals("CURRENT_DEAD")) 
 				o.refDB = oref;
 			else if (txt.equals("NEWOBJECT")) {
+				if (log.isLoggable(Level.FINE))
+					log.fine("is deleted:" + o.deleted);
 				// объект может быть удалённым, но о нём мы узнаём впервые.
 				if (o.deleted && swcv.is_sap() && ignore_sap_deleted) {
 					// Не стоит записывать удалённые саповские объекты, они замусоривают базу
@@ -720,13 +725,19 @@ public class Diffo implements IDiffo, Cloneable {
 					sapalive++;
 				} else {
 //					zip = o.deleted? null: p.readHttpConnection(p.establishGET(new URL(o.rawref), true));
+					if (log.isLoggable(Level.FINE))
+						log.fine("before sql_objrep_ins for " + o.rawref );
 					i = DUtil.setStatementParams(ins,p.host_id,session_id,o.refSWCV,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0).executeUpdate();
 					assert i==1: "insertion REP object failed, rows affected:"+i;
 					o.refDB = ins.getGeneratedKeys().getLong(1);
 					assert o.refDB!=0 : "bad object_ref:" + o.refDB;
 					i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, o.deleted?0:1).executeUpdate();
 					assert i==1: "insertion REP version failed, rows affected:"+i;
-					if (!o.deleted) p.addObject(o, session_id, true);
+					if (!o.deleted) {
+						if (log.isLoggable(Level.FINE))
+							log.fine("try to add object " + o + " in session " + session_id);
+						p.addObject(o, session_id, true);
+					}
 				}
 			} else if (txt.equals("NEWVER_LIVE")) {
 				o.refDB = oref;
@@ -756,8 +767,11 @@ public class Diffo implements IDiffo, Cloneable {
 			i++;
 		}
 		assert i==0: i+" objects are not handled; all amount is " + objs.size() + "; db rolled back:" + rollback();
+		log.fine("before p.addObjectCommit");
 		p.addObjectCommit(true);
+		log.fine("before diffo commit");
 		commit();
+		log.fine("after diffo commit");
 		assert validatedb();
 	}
 

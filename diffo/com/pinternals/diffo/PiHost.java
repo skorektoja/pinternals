@@ -366,6 +366,8 @@ public class PiHost implements Runnable {
 		assert o.rawref!=null;
 		assert !o.deleted : "tried to add deleted object " + o;
 		DUtil.setStatementParams(psNewOV, o.refDB, o.objectid, o.versionid, session_id, o.rawref);
+		if (log.isLoggable(Level.FINE))
+			log.fine("before psNewOV for oid/vid " + UUtil.getStringUUIDfromBytes(o.objectid) + "/" + UUtil.getStringUUIDfromBytes(o.versionid));
 		if (batch)
 			psNewOV.addBatch();
 		else
