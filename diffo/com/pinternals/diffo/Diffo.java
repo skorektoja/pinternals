@@ -154,6 +154,38 @@ public class Diffo implements IDiffo, Cloneable {
 		conn.rollback();
 		return true; // for using in conditions
 	}
+	void migrateMainDB(String newDbName) throws SQLException {
+		assert conn!=null && !conn.isClosed() : "current main db must be opened before migration";
+//		assert !newDbName.contains("./\\") : "dot or slashes in temp db aren't supported for attach yet";
+		Connection newcon = DriverManager.getConnection("jdbc:sqlite:" + newDbName);
+		newcon.setAutoCommit(false);
+		createdb(newcon);
+		newcon.close();
+
+		//IMPORTANT!!! главная база должна быть в автокоммите
+		//see http://stackoverflow.com/a/9119346/521359
+		//for DDL statement only it's required
+		conn.setAutoCommit(true);
+		// здесь не передать newDbName с точкой, как-то экранировать что-ли надо
+		String s = "ATTACH DATABASE '" + newDbName + "' AS migr"; 
+		PreparedStatement ps = DUtil.prepareStatementDynamic(conn, s);
+		ps.executeUpdate();
+		// все DML-операции уже могут быть коммичены явно
+		conn.setAutoCommit(false);
+		//TODO: добавить проверку валидности migrsql_tables и реального
+		//lst задаёт порядок (зависимости), но никто не гарантирует полного списка таблиц 
+		String[] lst = DUtil.getSql("migrsql_tables").split(",");
+		for (String t: lst) {
+			s = "DELETE FROM migr." + t;
+			ps = DUtil.prepareStatementDynamic(conn, s);
+			ps.executeUpdate();
+			conn.commit();
+			s = "INSERT INTO migr." + t + " SELECT * FROM " + t;
+			ps = DUtil.prepareStatementDynamic(conn, s);
+			ps.executeUpdate();
+			conn.commit();
+		}
+	}
 
 	/**
 	 * Создаёт БД в памяти, применяет к ней все выражения

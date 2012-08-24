@@ -95,6 +95,11 @@ public class DUtil {
 			}
 		return ps;
 	}
+	public static PreparedStatement prepareStatementDynamic(Connection c, String sql) 
+		throws SQLException {
+		PreparedStatement ps = c.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
+		return ps;
+	}
 	public static PreparedStatement prepareStatement(Connection c, String key, Object... objs)
 			throws SQLException {
 		log.entering(DUtil.class.getName(), "prepareStatement");
