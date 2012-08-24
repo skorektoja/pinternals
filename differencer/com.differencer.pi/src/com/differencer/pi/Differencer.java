@@ -63,14 +63,19 @@ public class Differencer {
 	}
 	public static void closeDatabase() {
 		try {
-			diffo.finish_session();
-			diffo.closedb();
-			DifferencerFactory.remove(diffo);
-			diffo = null;
-			Activator.log(Status.INFO, "closeDatabase failed");
+			if (diffo != null) {
+				diffo.finish_session();
+				diffo.closedb();
+				DifferencerFactory.remove(diffo);
+				diffo = null;
+				Activator.log(Status.INFO, "closeDatabase success");
+			}
 		} catch (SQLException e) {
 			Activator.log(Status.ERROR, "closeDatabase failed", e);
 		}
+	}
+	public static boolean isConnectedDatabase(){
+		return diffo != null ? true : false;
 	}
 	public static void collectConfiguration(Server description) {
 		try {
@@ -142,7 +147,7 @@ public class Differencer {
 		//		
 		root.appendChild(j);
 		for (Object i : element.getChildren()) {
-			if(!i.toString().startsWith("ARIS")) addChidren(document, j, (ConfigurationNode) i);
+			if (!i.toString().startsWith("ARIS")) addChidren(document, j, (ConfigurationNode) i);
 		}
 	}
 	public static void exportXMLStream(Server description, OutputStream os) {

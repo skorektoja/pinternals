@@ -15,6 +15,7 @@ import org.eclipse.ui.IWorkbenchPart;
 import org.eclipse.ui.PlatformUI;
 import org.xml.sax.SAXException;
 import com.differencer.pi.Activator;
+import com.differencer.pi.Differencer;
 import com.differencer.pi.editors.Server;
 import com.differencer.pi.editors.ServerConfigurationJob;
 public class ConfigurationCollectAction implements IObjectActionDelegate {
@@ -32,8 +33,16 @@ public class ConfigurationCollectAction implements IObjectActionDelegate {
 		}
 	}
 	public static void startCollectionJob(Server description) {
-		ServerConfigurationJob job = new ServerConfigurationJob("Collect PI configuration from host " + description.getURL(), description, MessageDialog.openConfirm(PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "Data collection type", "Collect bulk?"));
-		job.schedule();
+		if (Differencer.isConnectedDatabase()) {
+			MessageDialog dialog = new MessageDialog(PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "Data collection type", null, "Collect bulk?", MessageDialog.QUESTION, new String[] { "Yes", "No", "Cancel" }, 2);
+			int result = dialog.open();
+			if (result < 2) {
+				ServerConfigurationJob job = new ServerConfigurationJob("Collect PI configuration from host " + description.getURL(), description, result == 0 ? true : false);
+				job.schedule();
+			}
+		} else {
+			MessageDialog.openInformation(PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "Database connection status", "Database disconnected");
+		}
 	}
 	@Override
 	public void selectionChanged(IAction action, ISelection selection) {
