@@ -36,7 +36,7 @@
     <bgcolor level="11">DarkGoldenrod</bgcolor><fgcolor level="11">White</fgcolor>
     <bgcolor level="12">Cornsilk</bgcolor><fgcolor level="12">White</fgcolor>
   </xsl:param>
-  <xsl:param name="colors" select="$colors_gray"></xsl:param>
+  <xsl:param name="colors" select="$colors_gray"/>
   
   
   <xsl:param name="maxdepth" select="number(substring(concat(
@@ -65,8 +65,9 @@
         <table border="1px">
           <thead>
             <tr>
-              <th>1c</th>
-              <th>2d</th>
+              <th>#</th>
+              <th>Отправитель</th>
+              <th>Исх.знач.</th>
               <th>PI</th>
               <xsl:if test="$maxdepth > 0"><th>1</th></xsl:if>
               <xsl:if test="$maxdepth > 1"><th>2</th></xsl:if>
@@ -79,7 +80,7 @@
               <xsl:if test="$maxdepth > 8"><th>9</th></xsl:if>
               <xsl:if test="$maxdepth > 9"><th>10</th></xsl:if>
               <xsl:if test="$maxdepth > 10"><th>11</th></xsl:if>
-              <th></th>
+              <th>Треб.знач.</th>
             </tr>
           </thead>
           <tbody>
@@ -94,19 +95,22 @@
     <xsl:param name="lev" as="xs:decimal"/>
     <xsl:variable name="bgcolor" select="$colors/bgcolor[number(@level)=$lev]"/>
     <xsl:variable name="fgcolor" select="$colors/fgcolor[number(@level)=$lev]"/>
-    <tr style="background-color:{$bgcolor};color:{$fgcolor}">
-      <td>1c</td>
-      <td>2d</td>
-      <td colspan="{$lev}"></td>
-      <td colspan="{$maxdepth - $lev +1}"><xsl:value-of select="name(current())"/></td>
+    <xsl:variable name="s" select="concat('background-color:',$bgcolor,';color:',$fgcolor)"/>
+    <tr>
+      <td><xsl:value-of select="concat($lev,'.',count(preceding-sibling::*)+1)"/></td>
+      <td></td>
+      <td></td>
+      <td style="{$s}" colspan="{$lev}"></td>
+      <td style="{$s}" colspan="{$maxdepth - $lev +1}"><xsl:value-of select="name(current())"/></td>
       <td><xsl:value-of select="text()"/></td>
     </tr>
     <xsl:for-each select="@*">
-      <tr style="background-color:{$bgcolor};color:{$fgcolor}">
-        <td>1c</td>
-        <td>2d</td>
-        <td colspan="{$lev}"></td>
-        <td colspan="{$maxdepth - $lev + 1}"><xsl:value-of select="concat(name(..),'@',name(current()))"/></td>
+      <tr>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td style="{$s}" colspan="{$lev}"></td>
+        <td style="{$s}" colspan="{$maxdepth - $lev + 1}"><xsl:value-of select="concat(name(..),'@',name(current()))"/></td>
         <td><xsl:value-of select="current()"/></td>
       </tr>
     </xsl:for-each>
