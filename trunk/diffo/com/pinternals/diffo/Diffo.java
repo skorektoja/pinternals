@@ -143,6 +143,11 @@ public class Diffo implements IDiffo, Cloneable {
 		b = opendb();
 		b = b && createdb(conn) && commit();
 		if (a) b = b && start_session();
+		if (b) {
+			int i = DUtil.prepareStatement(conn, "sql_config_putversion", 
+						DUtil.getSql("db_version"), session_id).executeUpdate();
+			commit();
+		}
 		return b;
 	}
 
@@ -443,18 +448,27 @@ public class Diffo implements IDiffo, Cloneable {
 		assert validatedb() : "DB is invalid"; 
 	}
 
+
+	/**
+	 * Новая индексировалка SWCV. В отличии от refreshSWCV
+	 * @param p
+	 * @return
+	 * @throws IOException
+	 * @throws ParseException
+	 * @throws SQLException
+	 * @throws SAXException
+	 */
 	public boolean refreshSWCV(PiHost p) 
 		throws IOException, ParseException, SQLException, SAXException 
 		{ 
-		// TODO: implement SWCV changes and	re-orderings 
-		ArrayList<SWCV> as = p.askSWCV(); 
+		ArrayList<SWCV> as = p.askSwcvSeparated(); 
 		boolean ok = true; 
 		assert as != null : "SWCV extraction problem"; 
-		PreparedStatement ps = prepareStatement("sql_swcv_getone");
-		PreparedStatement ins = prepareStatement("sql_swcv_putone"); 
+		PreparedStatement ps = prepareStatement("sql_swcvdef_getone");
+		PreparedStatement ins = prepareStatement("sql_swcvdef_putone"); 
 		long found = 0, notfound = 0; 
 		for (SWCV s : as) { 
-			DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp, s.seqno); 
+			DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp); 
 			ResultSet r = ps.executeQuery();
 			if (r.next()) { 
 				s.ref = r.getLong(1); 
@@ -470,10 +484,9 @@ public class Diffo implements IDiffo, Cloneable {
 				// 10..14 =
 				// modify_date,modify_user,dependent_id,is_editable,is_original
 				DUtil.setStatementParams(ins, p.host_id, session_id, s.ws_id, s.type,
-						s.vendor, s.caption, s.name, s.sp, s.seqno,
-						s.modify_date, s.modify_user, s.dependent_id,
-						s.is_editable ? 1 : 0, s.is_original ? 1 : 0,
-						s.index_me ? 1 : 0);
+						s.vendor, s.caption, s.name, s.sp, 
+						s.modify_date, s.modify_user, s.is_editable ? 1 : 0, s.is_original ? 1 : 0,
+						s.elementTypeId,s.versionset, s.index_me ? 1 : 0);
 				ins.addBatch();
 			}
 		}
@@ -488,7 +501,7 @@ public class Diffo implements IDiffo, Cloneable {
 			// for getting ref, we are looking for unknown references
 			for (SWCV s : as)
 				if (s.is_unknown()) {
-					DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp, s.seqno);
+					DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp);
 					ResultSet r = ps.executeQuery();
 					ok = ok && r != null;
 					assert r != null : "SWCV isn't found after insert";
@@ -498,11 +511,44 @@ public class Diffo implements IDiffo, Cloneable {
 			ok = ok && nf2 == 0;
 			assert nf2 == 0 : "not all the SWCV are with references yet";
 		}
+//		System.out.println("\n\n\n---------------------------------\n\n\n");
+		// Разбираемся с зависимостями
+		// TODO: проверить на изменении зависимостей. Пока сделать просто.
+		
+		// Проставить всем дочерним зависимостям ссылочные номера
+		ps = prepareStatement("sql_swcvdeps_getone");
+		ins = prepareStatement("sql_swcvdeps_putone");
+		PreparedStatement del = prepareStatement("sql_swcvdeps_delone");
+		for (SWCV s: as) {
+			s.alignDep(as);
+//			System.out.println(s);
+
+			assert s.ref != -1L;
+			ResultSet r = DUtil.setStatementParams(ps, s.ref).executeQuery();
+			boolean b = true;
+			while (r.next()) {
+				long depref = r.getLong(1), seqno = r.getLong(2);
+				byte[] depws_id = r.getBytes(3);
+				String depws_name = r.getString(4);
+				b = b && s.markDepDb(depref,seqno,depws_id,depws_name);
+			}
+			if (!b || !s.areAllMarked()) {
+				DUtil.setStatementParams(del, s.ref);
+				del.executeUpdate();
+				commit();
+//				System.out.println("Need to delete " + s.ref);
+				s.putDeps(ins, session_id);
+				ins.executeBatch();
+				commit();
+			}
+		}
+
 		p.swcv = new HashMap<Long,SWCV>(as.size());
 		for (SWCV s: as) p.swcv.put(s.ref, s);
 		assert validatedb();
 		return ok;
 	}
+	
 
 	public void askIndexRepository(PiHost p) throws IOException, SQLException, SAXException {
 		Side r = Side.Repository;
