@@ -62,10 +62,26 @@
             </separator>
          </menu>
          <action
+               class="com.differencer.pi.actions.ConnectDatabaseAction"
+               id="com.differencer.pi.actions.ConnectDatabaseAction"
+               label="%action.label.1"
+               menubarPath="com.differencer.pi.menu/differencerGroup"
+               style="push"
+               toolbarPath="differencerGroup">
+         </action>
+         <action
+               class="com.differencer.pi.actions.DisconnectDatabaseAction"
+               id="com.differencer.pi.actions.DisconnectDatabaseAction"
+               label="%action.label.2"
+               menubarPath="com.differencer.pi.menu/differencerGroup"
+               style="push"
+               toolbarPath="differncerGroup">
+         </action>
+         <action
                class="com.differencer.pi.actions.ClearDatabaseAction"
-               id="com.internals.pi.actions.ClearDatabaseAction"
+               id="com.differencer.pi.actions.ClearDatabaseAction"
                label="%action.label"
-               menubarPath="com.differencer.pi.menu/dfferencerGroup"
+               menubarPath="com.differencer.pi.menu/differencerGroup"
                toolbarPath="differncerGroup">
          </action>
       </actionSet>
