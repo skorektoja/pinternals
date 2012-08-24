@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns0:PurchaseRequestERPSourcingRequest xmlns:ns0="http://sap.com/xi/SAPGlobal20/Global">
+  <MessageHeader>
+    <ID>20120821114117</ID>
+    <CreationDateTime>2012-08-21T11:41:20Z</CreationDateTime>
+    <SenderBusinessSystemID>BS_ECC_021</SenderBusinessSystemID>
+  </MessageHeader>
+  <PurchaseRequest itemListCompleteTransmissionIndicator="false">
+    <ID>1200000784</ID>
+    <Item actionCode="01">
+      <ID>10</ID>
+      <TypeCode>018</TypeCode>
+      <ProcessingTypeCode>0</ProcessingTypeCode>
+      <PurchaseRequestSourcingStatusCode>1</PurchaseRequestSourcingStatusCode>
+      <PostingDate>2012-08-21</PostingDate>
+      <OrderingDate>2012-10-24</OrderingDate>
+      <CancelledIndicator>false</CancelledIndicator>
+      <TotalAmount currencyCode="RUB">3916500000.0</TotalAmount>
+      <ValuationPrice>
+        <Amount currencyCode="RUB">195825.00</Amount>
+        <BaseQuantity unitCode="PCE">1.0</BaseQuantity>
+      </ValuationPrice>
+      <TotalRequestedQuantity unitCode="PCE">20000.000</TotalRequestedQuantity>
+      <RequesterPersonName>PERSON 1</RequesterPersonName>
+      <DeliveryPeriod>
+        <StartDateTime timeZoneCode="RUS03">2012-11-18T00:00:00Z</StartDateTime>
+      </DeliveryPeriod>
+      <Product>
+        <InternalID>2562</InternalID>
+        <BuyerID>0000000000000000000000000000000000347118</BuyerID>
+        <TypeCode>01</TypeCode>
+      </Product>
+      <ProductCategory>
+        <InternalID>170102</InternalID>
+        <BuyerID>170102</BuyerID>
+      </ProductCategory>
+      <ResponsiblePurchasingOrganisationParty>
+        <InternalID>1100</InternalID>
+        <BuyerID>1100</BuyerID>
+      </ResponsiblePurchasingOrganisationParty>
+      <ResponsiblePurchasingGroupParty>
+        <InternalID>104</InternalID>
+        <BuyerID>104</BuyerID>
+      </ResponsiblePurchasingGroupParty>
+      <ShipToLocation>
+        <Address>
+          <OrganisationFormattedName>ЛПК - Основная деятельность</OrganisationFormattedName>
+          <OrganisationFormattedName>ЛПК - Основная деятельность</OrganisationFormattedName>
+          <PhysicalAddress>
+            <CountryCode>RU</CountryCode>
+            <StreetPostalCode>607060</StreetPostalCode>
+            <CityName>Выкса</CityName>
+            <StreetName>Братьев Баташевых</StreetName>
+            <StreetPrefixName/>
+            <StreetSuffixName/>
+            <HouseID>45</HouseID>
+          </PhysicalAddress>
+          <Communication>
+            <CorrespondenceLanguageCode>RU</CorrespondenceLanguageCode>
+          </Communication>
+        </Address>
+        <AddressGroupCode>CA01</AddressGroupCode>
+      </ShipToLocation>
+      <ReceivingPlantID>1100</ReceivingPlantID>
+      <Description languageCode="ru">НТ_Видеоконференция Polycom VSX 7000s</Description>
+      <ns2:Extention xmlns:ns2="http://omk.ru/xi/srm/SRM/PurchaseRequest">
+        <ZZSRM_CRNM>Ольга Александровна Шабалина</ZZSRM_CRNM>
+        <ZZSRM_DSID>104</ZZSRM_DSID>
+        <ZZSRM_DSNM>PERSON 1</ZZSRM_DSNM>
+        <ZZSRM_FRGKZ>D</ZZSRM_FRGKZ>
+      </ns2:Extention>
+    </Item>
+  </PurchaseRequest>
+</ns0:PurchaseRequestERPSourcingRequest>
