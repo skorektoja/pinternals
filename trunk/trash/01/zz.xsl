@@ -3,8 +3,42 @@
   <!-- 
     Документировалка меппингов.
     Выводит в html таблицу со смещённым количеством столбцов
+    Матрасы из http://ru.wikipedia.org/wiki/%D0%A6%D0%B2%D0%B5%D1%82%D0%B0_HTML
     -->
   <xsl:output method="html" indent="yes"/>
+  
+  
+  <xsl:param name="colors_brown">
+    <bgcolor level="01">Cornsilk</bgcolor><fgcolor level="01">Black</fgcolor>
+    <bgcolor level="02">BlanchedAlmond</bgcolor><fgcolor level="02">Black</fgcolor>
+    <bgcolor level="03">Bisque</bgcolor><fgcolor level="03">Black</fgcolor>
+    <bgcolor level="04">NavajoWhite</bgcolor><fgcolor level="04">Black</fgcolor>
+    <bgcolor level="05">Wheat</bgcolor><fgcolor level="05">Black</fgcolor>
+    <bgcolor level="06">BurlyWood</bgcolor><fgcolor level="06">White</fgcolor>
+    <bgcolor level="07">Tan</bgcolor><fgcolor level="07">White</fgcolor>
+    <bgcolor level="08">RosyBrown</bgcolor><fgcolor level="08">White</fgcolor>
+    <bgcolor level="09">SandyBrown</bgcolor><fgcolor level="09">White</fgcolor>
+    <bgcolor level="10">Goldenrod</bgcolor><fgcolor level="10">White</fgcolor>
+    <bgcolor level="11">DarkGoldenrod</bgcolor><fgcolor level="11">White</fgcolor>
+    <bgcolor level="12">Cornsilk</bgcolor><fgcolor level="12">White</fgcolor>
+  </xsl:param>
+  <xsl:param name="colors_gray">
+    <bgcolor level="01">Gainsboro</bgcolor><fgcolor level="01">Black</fgcolor>
+    <bgcolor level="02">LightGrey</bgcolor><fgcolor level="02">Black</fgcolor>
+    <bgcolor level="03">Silver</bgcolor><fgcolor level="03">Black</fgcolor>
+    <bgcolor level="04">DarkGray</bgcolor><fgcolor level="04">Black</fgcolor>
+    <bgcolor level="05">Gray</bgcolor><fgcolor level="05">White</fgcolor>
+    <bgcolor level="06">DimGray</bgcolor><fgcolor level="06">White</fgcolor>
+    <bgcolor level="07">LightSlateGray</bgcolor><fgcolor level="07">White</fgcolor>
+    <bgcolor level="08">SlateGray</bgcolor><fgcolor level="08">White</fgcolor>
+    <bgcolor level="09">DarkSlateGray</bgcolor><fgcolor level="09">White</fgcolor>
+    <bgcolor level="10">Black</bgcolor><fgcolor level="10">White</fgcolor>
+    <bgcolor level="11">DarkGoldenrod</bgcolor><fgcolor level="11">White</fgcolor>
+    <bgcolor level="12">Cornsilk</bgcolor><fgcolor level="12">White</fgcolor>
+  </xsl:param>
+  <xsl:param name="colors" select="$colors_gray"></xsl:param>
+  
+  
   <xsl:param name="maxdepth" select="number(substring(concat(
     '16'[count(current()/*/*/*/*/*/*/*/*/*/*/*/*/*/*/*/*/*)>0],
     '15'[count(current()/*/*/*/*/*/*/*/*/*/*/*/*/*/*/*/*)>0],
@@ -58,7 +92,9 @@
   
   <xsl:template match="*" mode="t1">
     <xsl:param name="lev" as="xs:decimal"/>
-    <tr bgcolor="yellow">
+    <xsl:variable name="bgcolor" select="$colors/bgcolor[number(@level)=$lev]"/>
+    <xsl:variable name="fgcolor" select="$colors/fgcolor[number(@level)=$lev]"/>
+    <tr style="background-color:{$bgcolor};color:{$fgcolor}">
       <td>1c</td>
       <td>2d</td>
       <td colspan="{$lev}"></td>
@@ -66,12 +102,12 @@
       <td><xsl:value-of select="text()"/></td>
     </tr>
     <xsl:for-each select="@*">
-      <tr bgcolor="darksalmon">
+      <tr style="background-color:{$bgcolor};color:{$fgcolor}">
         <td>1c</td>
         <td>2d</td>
         <td colspan="{$lev}"></td>
-        <td colspan="{$maxdepth - $lev + 1}">@<xsl:value-of select="name(current())"/></td>
-        <td></td>
+        <td colspan="{$maxdepth - $lev + 1}"><xsl:value-of select="concat(name(..),'@',name(current()))"/></td>
+        <td><xsl:value-of select="current()"/></td>
       </tr>
     </xsl:for-each>
     <xsl:apply-templates select="*" mode="t1"><xsl:with-param name="lev" select="$lev+1"/></xsl:apply-templates>
