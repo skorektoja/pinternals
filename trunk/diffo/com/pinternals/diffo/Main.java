@@ -285,6 +285,8 @@ public class Main {
 						pih = d.addPiHost(sid, xihost);
 					}
 					migrateHostDB(d, pih, "newHostDB");
+				} else if ("migrateMainDB".equals(a0)) {
+					d.migrateMainDB("newMainDB.tmp");
 				} else
 					System.err.println("Unknown command: " + a0);
 			}

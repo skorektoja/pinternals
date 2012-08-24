@@ -466,6 +466,7 @@ public class PiHost implements Runnable {
 		return true;
 	}
 	public boolean migrateHostDB(String newDbFile) throws SQLException {
+		assert !newDbFile.contains("./\\") : "dot or slashes in temp db aren't supported for attach yet";
 		Connection newcon = DriverManager.getConnection("jdbc:sqlite:" + newDbFile);
 		newcon.setAutoCommit(false);
 		createHostDB(newcon);
