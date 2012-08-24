@@ -222,9 +222,20 @@ public class PiHost implements Runnable {
 		return false;
 	}
 
+	/**
+	 * Работает неверно из-за зависимостей в SWCV. Не трогать это старое, см. askSwcvSeparated
+	 * @return
+	 * @throws IOException
+	 * @throws SAXException
+	 * @throws ParseException
+	 */
 	public ArrayList<SWCV> askSWCV() throws IOException, SAXException, ParseException {
 		PiEntity e = getEntity(Side.Repository, "workspace");
 		assert e != null: "SWCV not found in entities";
+		
+		assert false: "Code is not for using";
+		int i=0/0;
+		
 		String s = "qc=All+software+components&syncTabL=true&deletedL=N&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&" + e.getQueryPrepareParse() + "&action=Start+query"; 
 		HttpURLConnection h = establishPOST(Side.Repository.url(uroot), true);
 		DUtil.putPOST(h, s);
@@ -239,6 +250,45 @@ public class PiHost implements Runnable {
 			rez.add(new SWCV(po));
 		return rez;
 	}
+	
+	public ArrayList<SWCV> askSwcvSeparated() throws IOException, SAXException, ParseException {
+		PiEntity e = getEntity(Side.Repository, "workspace");
+		assert e != null: "SWCV not found in entities";
+		String sDef, sDep;
+		// definitions
+		sDef="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=COMPONENT_NAME&result=COMPONENT_VENDOR&result=WS_ID&result=MODIFYDATE&result=MODIFYUSER&result=WS_NAME&result=CAPTION&result=ELEMENTTYPEID&result=NAME&result=VENDOR&result=VERSION&result=SWC_GUID&result=WS_TYPE&result=EDITABLE&result=ORIGINAL&result=ELEMENTTYPEID&result=DEVLINE&result=WS_ORDER&action=Start+query";
+		// dependencies
+		sDep="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=DEPTYPE&result=WS_ID&result=DEPWS_ID&result=DEPWS_NAME&result=WS_ORDER&result=SEQNO&result=DEVLINE&action=Start+query";
+		// whole template
+		HttpURLConnection h = establishPOST(Side.Repository.url(uroot), true);
+		DUtil.putPOST(h, sDef);
+		h.connect();
+		ArrayList<PiObject> tmp = e.parse_index(h.getInputStream(),false), tmp2;
+		h.disconnect();
+		if (tmp.size()==0) {
+			log.warning(DUtil.format("swcv_retr_failure", sid));
+			return null;
+		}
+		// get dependencies
+		h = establishPOST(Side.Repository.url(uroot), true);
+		DUtil.putPOST(h, sDep);
+		h.connect();
+		tmp2 = e.parse_index(h.getInputStream(),false);
+		h.disconnect();
+		if (tmp2.size()==0) {
+			log.warning(DUtil.format("swcv_retr_failure", sid));
+			return null;
+		}
+		log.config("There is " + tmp.size() + " swcv and " + tmp2.size() + " dependencies");
+		ArrayList<SWCV> rez = new ArrayList<SWCV>(tmp.size()); 
+		for (PiObject po: tmp) {
+			SWCV sw = new SWCV(po);
+			sw.addDep(tmp2,true);
+			rez.add(sw);
+		}
+		return rez;
+	}
+	
 	
 	public boolean register(String action, Object...objs) {
 		if (this.action==null) {

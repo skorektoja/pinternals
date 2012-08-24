@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -110,36 +112,106 @@ class SWCV {
 	long ref = -1;
 	boolean index_me = false; 
 
-	String vendor, caption, name, modify_user;
-	byte ws_id[], dependent_id[];
-	Long sp, seqno;
+	String vendor, caption, name, modify_user, elementTypeId, versionset;
+	byte ws_id[];
+	long sp;
 	boolean is_editable, is_original;
 	char type;
 	Date modify_date;
-	
+	class DependentSWCV {
+		long sp,seqno,ref=-1;
+		byte []dependent_id = null;
+		String dependentName = null;
+		boolean indb=false;
+		DependentSWCV (PiObject po) {
+			ref = -1;
+			assert po.kvm.containsKey("Order") && po.kvm.containsKey("SeqNo") : "DependentSWCV has no good attributes";
+			sp = Long.parseLong(po.kvm.get("Order"));
+			seqno = Long.parseLong(po.kvm.get("SeqNo"));
+			dependent_id = UUtil.getBytesUUIDfromString(po.kvm.get("dependentWK Id"));
+			dependentName = po.kvm.get("dependentWK Name");
+		}
+		public String toString() {
+			return "ref=" + ref + ",guid=" + UUtil.getStringUUIDfromBytes(dependent_id) + ",sp=" + sp +",seqno="+seqno;
+		}
+	}
+	ArrayList<DependentSWCV> deps = null;
+	public String toString() {
+		String s = "SWCV{ref="+ref+",guid=" + UUtil.getStringUUIDfromBytes(ws_id)+",name="
+			+name+" sp="+sp+" versionset="+versionset+","+
+			caption+" "+type+" "+is_editable+"_"+is_original;
+		if (deps!=null) for (DependentSWCV sd:deps) {
+			s += "\n\tdependency: " + sd.toString();
+		}
+		return s;
+	}
 	private boolean is_sapb = false;
-
 	boolean is_unknown() {return this.ref==-1;}
 	boolean is_sap() {return is_sapb;}
-
 	SWCV (PiObject po) throws ParseException {
 		vendor = po.kvm.get("Component Vendor");
 		ws_id = UUtil.getBytesUUIDfromString(po.kvm.get("Id"));
 		modify_date	= df.parse(po.kvm.get("ModifyDate"));
+		sp = Long.parseLong(po.kvm.get("Order"));
+		versionset = po.kvm.get("Versionset");
+		elementTypeId = po.kvm.get("Swcv ElementTypeId");
 
 		modify_user = po.kvm.get("ModifyUser");
 		name = po.kvm.get("Name");
-		sp = Long.parseLong(po.kvm.get("Order"));
-		seqno = Long.parseLong(po.kvm.get("SeqNo"));
-		dependent_id = UUtil.getBytesUUIDfromString(po.kvm.get("dependentWK Id"));
 		caption = po.kvm.get("Swcv Caption");
 		type = po.kvm.get("Type").charAt(0);
 		is_editable = Boolean.parseBoolean(po.kvm.get("isEditable"));
 		is_original = Boolean.parseBoolean(po.kvm.get("isOriginal"));
 		is_sapb = "sap.com".equals(vendor);
-//		String s = "SWCV{vendor+" "+Util.getStringUUIDfromBytes(ws_id)+" "+
-//			modify_date+" "+modify_user+" "+name+" "+sp+" "+seqno+" "+
-//			Util.getStringUUIDfromBytes(dependent_id)+" "+caption+" "+type+" "+is_editable+"_"+is_original;
+	}
+	void addDep (ArrayList<PiObject> pd, boolean removeUsed) {
+		deps = deps==null ? new ArrayList<DependentSWCV>(10) : deps;
+		ArrayList<PiObject> todel = null; 
+		for (PiObject po: pd) {
+			DependentSWCV depSWCV = new DependentSWCV(po);
+			byte[] ws_id2 = UUtil.getBytesUUIDfromString(po.kvm.get("Id"));
+			if (UUtil.areEquals(ws_id, ws_id2) && sp==depSWCV.sp) {
+				deps.add(depSWCV);
+				if (removeUsed) {
+					todel = todel==null ? new ArrayList<PiObject>(5) : todel;
+					todel.add(po); // remove once used for more next loops
+				}
+			}
+		}
+		if (removeUsed) for (PiObject po: todel) pd.remove(po);
+		if (deps!=null && deps.size()==0) deps=null; // дабы экономить память. TODO: переписать через временный буфер
+	}
+	void alignDep(ArrayList<SWCV> dict) {
+		assert ref!=-1L : "SWCV isn't in database yet (" + UUtil.getStringUUIDfromBytes(ws_id) + ",sp=" + sp + ")";
+		// проставляет ссылки на swcv_ref
+		if (deps!=null)	for (DependentSWCV d: deps) {
+			d.indb = false;
+			for (SWCV s: dict)
+				if (s.sp==d.sp && UUtil.areEquals(s.ws_id, d.dependent_id)) d.ref = s.ref;
+		}
+	}
+	boolean markDepDb(long dep, long seqno, byte[] depid, String depname) {
+		boolean b = false;
+		if (deps!=null)	for (DependentSWCV d: deps) {
+			b = (d.ref != -1L && d.ref==dep && d.seqno==seqno) ||
+				(d.ref==-1L && UUtil.areEquals(d.dependent_id, depid));
+			if (b && !d.indb) { 
+				d.indb = b;
+				return b;
+			}
+		}
+		return b;
+	}
+	boolean areAllMarked() {
+		boolean b = true;
+		if (deps!=null)	for (DependentSWCV d: deps) b = b && d.indb;
+		return b;
+	}
+	void putDeps(PreparedStatement ins, long session_id) throws SQLException {
+		if (deps!=null)	for (DependentSWCV d: deps) {
+			DUtil.setStatementParams(ins, ref, d.ref!=-1L ? d.ref : null, d.seqno, d.dependent_id, d.dependentName, session_id);
+			ins.addBatch();
+		}
 	}
 }
 
@@ -178,10 +250,14 @@ public class PiEntity {
 	public String getQueryPrepareParse() {
 		String s = "";
 		if (side==Side.Repository && intname.equals(SWCV)) {
-			// нужен полный фарш для SWCV, поскольку у них нет ссылки [R]
-			for (ResultAttribute ra: attrs) {
-				s = s + "&result=" + ra.internal;
-			}
+			assert false: "This code is not for use already";
+			int i = 0 / 0;
+			// убрано отсюда, но не закомментарено -- чтобы видеть старый код, который это вызовет
+			// TODO: refactoring is needed
+//			// нужен полный фарш для SWCV, поскольку у них нет ссылки [R]
+//			for (ResultAttribute ra: attrs) {
+//				s = s + "&result=" + ra.internal;
+//			}
 		} else { // достаточно всего трёх таблеток! главное, не ударяться в истерику.
 			s =  "result=RA_XILINK&result=OBJECTID&result=VERSIONID";
 		}

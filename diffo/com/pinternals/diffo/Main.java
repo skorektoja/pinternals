@@ -274,6 +274,27 @@ public class Main {
 						pih.setUserCredentials(uname, passwd);
 					}
 					d.fullFarsch(pih);
+				} else if ("refreshMeta".equals(a0)) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					d.refreshMeta(pih);
+				} else if ("refreshSWCV".equals(a0)) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					d.refreshSWCV(pih);
+				} else if ("askIndexRepository".equals(a0)) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					d.askIndexRepository(pih);
 				} else if ("transportCheck".equals(a0)) {
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
