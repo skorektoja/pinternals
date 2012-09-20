@@ -25,25 +25,29 @@ import com.pinternals.diffo.api.IDiffo;
 
 /**
  * @author Илья Кузнецов Обращается к БД, ведёт сессию и хранит список хостов,
- *         должен быть синглтоном. Также отдаёт назад результаты сравнений.
+ *         должен быть одним на сеанс работы. Также отдаёт назад результаты сравнений.
  */
 public class Diffo implements IDiffo, Cloneable {
 	private static Logger log = Logger.getLogger(Diffo.class.getName());
-	public static String version = "0.1.0";
+	public static String version = "0.1.1";
 	private ArrayList<PiHost> pihosts = new ArrayList<PiHost>(10);
 	private Connection conn = null;
 	private File dbfile = null;
 
 	public Long session_id = -1L;
 	public Proxy proxy;
+	private int threadsindexing = 2; 
+	private List<Thread> workers = new LinkedList<Thread>(), 
+			queue = new LinkedList<Thread>();
 
 	/**
 	 * @param dbname путь к файлу БД
 	 * @param prx    http-proxy (optional)
 	 */
-	public Diffo(String dbname, Proxy prx) {
+	public Diffo(String dbname, Proxy prx, int tx) {
 		proxy = prx;
 		dbfile = new File(dbname);
+		threadsindexing = tx;
 		log.entering(Diffo.class.getName(), "Diffo");
 	}
 
@@ -548,78 +552,33 @@ public class Diffo implements IDiffo, Cloneable {
 
 		p.swcv = new HashMap<Long,SWCV>(as.size());
 		for (SWCV s: as) p.swcv.put(s.ref, s);
-		assert validatedb();
 		return ok;
 	}
 	
-
-	public void askIndexRepository(PiHost p, int mx) {
-		Side r = Side.Repository;
-		PiEntity[] reps = {p.getEntity(r, "namespdecl"),
-				p.getEntity(r, "ifmtypedef"),			// Data type
-				p.getEntity(r, "XI_TRAFO"),				// message mapping
-				p.getEntity(r, "AdapterMetaData"),
-				p.getEntity(r, "ifmcontobj"),
-				p.getEntity(r, "ifmtypeenh"),
-				p.getEntity(r, "ifmextdef"),
-				p.getEntity(r, "ifmextmes"),
-				p.getEntity(r, "ifmfaultm"),
-				p.getEntity(r, "FUNC_LIB"),
-				p.getEntity(r, "FUNC_LIB_PROG"),
-				p.getEntity(r, "ChannelTemplate"),
-				p.getEntity(r, "MAP_ARCHIVE_PRG"),
-				p.getEntity(r, "MAPPING"),
-				p.getEntity(r, "AlertCategory"),
-				p.getEntity(r, "TRAFO_JAR"),
-				p.getEntity(r, "RepBProcess"),
-				p.getEntity(r, "rfc"),
-				p.getEntity(r, "idoc"),
-				p.getEntity(r, "imsg"),
-				p.getEntity(r, "iseg"),
-				p.getEntity(r, "ityp"),
-				p.getEntity(r, "ifmclsfn"),
-				p.getEntity(r, "ifmmessage"),
-				p.getEntity(r, "ifmoper"),
-				p.getEntity(r, "processcomp"),
-				p.getEntity(r, "process"),
-				p.getEntity(r, "rfcmsg"),
-				p.getEntity(r, "ifmmessif"),
-				p.getEntity(r, "MAPPING_TEST"),
-				p.getEntity(r, "DOCU"),
-
-//				p.getEntity(r, "arismodelext"),
-//				p.getEntity(r, "arisprofile"),
-//				p.getEntity(r, "ariscxnocc"),
-//				p.getEntity(r, "arisobjocc"),
-//				p.getEntity(r, "aristextocc"),
-
-//				p.getEntity(r, ""),
-//				p.getEntity(r, ""),
-			};
-		final PiHost p2 = p;
-		List<Thread> workers = new LinkedList<Thread>(), 
-				queue = new LinkedList<Thread>();
-		for (final PiEntity e: reps) {
-			if (e!=null) {
-				Thread w = new Thread(new Runnable(){
-					public void run() {
-						try {
-							handleIndexRepositoryObjectsVersions(p2.askIndex(e), p2, e);
-						} catch (SQLException e) {
-							e.printStackTrace();
-						} catch (IOException e) {
-							e.printStackTrace();
-						} catch (SAXException e) {
-							e.printStackTrace();
-						}
-					}
-				});
-				workers.add(w);
-			} else
-				log.severe("Entity is null!");
-		}
-		while (workers.size()!=0 || queue.size()!=0) {
-			if (workers.size()>0 && queue.size()<mx) {
+	public boolean putIndexRequestInQueue(final PiHost p, final PiEntity e) {
+		Thread w = new Thread(new Runnable(){
+			public void run() {
+				try {
+					if (e.side == Side.Repository)
+						handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
+					else if (e.side == Side.Directory)
+						handleIndexDirectoryObjectsVersions(p.askIndex(e), p, e);
+				} catch (SQLException e) {
+					e.printStackTrace();
+				} catch (IOException e) {
+					e.printStackTrace();
+				} catch (SAXException e) {
+					e.printStackTrace();
+				}
+			}
+		});
+		return workers.add(w);
+	}
+	
+	public boolean tickIndexRequestQueue(boolean loop) {
+		boolean b = workers.size()!=0 || queue.size()!=0;
+		while (b) {
+			if (workers.size()>0 && queue.size()<threadsindexing) {
 				Thread w = workers.remove(0);
 				w.start();
 				queue.add(w);
@@ -628,45 +587,83 @@ public class Diffo implements IDiffo, Cloneable {
 				queue.remove(w);
 				break;
 			}
+			b = workers.size()!=0 || queue.size()!=0;
+			b = b && loop;
 		}
-
+		return workers.size()!=0 || queue.size()!=0;
 	}
 	
-	public void askIndexDirectory(PiHost p, int tx) throws SQLException, IOException, SAXException {
-		Side d = Side.Directory;
-		PiEntity[] dirs = {
-				p.getEntity(d, "Party"),
-				p.getEntity(d, "Service"),
-				p.getEntity(d, "Channel"),
-				p.getEntity(d, "InboundBinding"),
-				p.getEntity(d, "OutboundBinding"),
-				p.getEntity(d, "RoutingRelation"),
-				p.getEntity(d, "RoutingRule"),
-				p.getEntity(d, "MappingRelation"),
-				p.getEntity(d, "P2PBinding"),
-				p.getEntity(d, "DirectoryView"),
-				p.getEntity(d, "ValueMapping"),
-				p.getEntity(d, "DOCU"),
-//				p.getEntity(d, "AgencySchemObj"),	// involve http 500
-//				p.getEntity(d, ""),
-//				p.getEntity(d, ""),
+
+	public void askIndexRepository(PiHost p) {
+		String[] arr={"namespdecl",
+				"ifmtypedef",
+				"XI_TRAFO",
+				"AdapterMetaData",
+				"ifmcontobj",
+				"ifmtypeenh",
+				"ifmextdef",
+				"ifmextmes",
+				"ifmfaultm",
+				"FUNC_LIB",
+				"FUNC_LIB_PROG",
+				"ChannelTemplate",
+				"MAP_ARCHIVE_PRG",
+				"MAPPING",
+				"AlertCategory",
+				"TRAFO_JAR",
+				"RepBProcess",
+				"rfc",
+				"idoc",
+				"imsg",
+				"iseg",
+				"ityp",
+				"ifmclsfn",
+				"ifmmessage",
+				"ifmoper",
+				"processcomp",
+				"process",
+				"rfcmsg",
+				"ifmmessif",
+				"MAPPING_TEST",
+				"DOCU",
+
+				"arismodelext",
+				"arisprofile",
+				"ariscxnocc",
+				"arisobjocc",
+				"aristextocc",
 		};
-		for (PiEntity e: dirs) {
-			handleIndexDirectoryObjectsVersions(p.askIndex(e), p, e);
+		for (String x: arr) {
+			PiEntity e = p.getEntity(Side.Repository, x);
+			if (e==null) 
+				log.severe("Entity is null: Repository/" + x);
+			else
+				putIndexRequestInQueue(p, e);
+		}
+	}
+	
+	public void askIndexDirectory(PiHost p)  {
+		String[] arr = {"Party",
+				"Service",
+				"Channel",
+				"InboundBinding",
+				"OutboundBinding",
+				"RoutingRelation",
+				"RoutingRule",
+				"MappingRelation",
+				"P2PBinding",
+				"DirectoryView",
+				"ValueMapping",
+				"DOCU",};
+		for (String x: arr) {
+			PiEntity e = p.getEntity(Side.Directory, x);
+			if (e==null) 
+				log.severe("Entity is null: Directory/" + x);
+			else
+				putIndexRequestInQueue(p, e);
 		}
 	}
 
-	private void fill_tmp3(ArrayList<PiObject> a) throws SQLException {
-		prepareStatement("sql_tmp3_del").execute();
-		PreparedStatement ins = prepareStatement("sql_tmp3_ins");
-		assert a!=null;
-		for (PiObject o: a) {
-			DUtil.setStatementParams(ins, o.objectid, o.versionid, o.deleted?1:0);
-			ins.addBatch();
-		}
-		ins.executeBatch();
-		commit();
-	}
 
 	private void handleIndexDirectoryObjectsVersions(ArrayList<PiObject> objs, PiHost p, PiEntity e)
 			throws SQLException {
@@ -681,7 +678,7 @@ public class Diffo implements IDiffo, Cloneable {
 			;
 
 		// Вставить гуиды, полученные онлайн, в tmp3
-		fill_tmp3(objs);
+		fill_tmp4(objs, e);
 		
 		// делаем искалку. Так только для Directory! в Repository будет +SWCV и +SP
 		HashMap<ByteBuffer, PiObject> hm = new HashMap<ByteBuffer, PiObject>(objs.size());
@@ -692,7 +689,7 @@ public class Diffo implements IDiffo, Cloneable {
 		ResultSet rs = sel.executeQuery();
 		assert rs!=null;
 		int i;
-
+		long[] keys = new long[10];
 		while (rs.next()) {
 			String txt = rs.getString(1);
 			byte[] oid = rs.getBytes(2), vid=rs.getBytes(3);
@@ -710,40 +707,53 @@ public class Diffo implements IDiffo, Cloneable {
 				// появилась новая версия объекта. 
 //				zip = DUtil.readHttpConnection(p.establishGET(new URL(o.rawref), true));
 				// Деактивируем старую версию, сессия не меняется
-				i = DUtil.setStatementParams(deactV,oref).executeUpdate();
+				DUtil.setStatementParams(deactV,oref);
+				i = DUtil.executeUpdate(deactV, true);
 				assert i==1 : "deactivate failed, rows updated:"+i;
 				// добавляем новую активную версию 
-				i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1).executeUpdate();
+				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1);
+				i = DUtil.executeUpdate(insV,true);
 				assert i==1 : "insert version touched rows: " + i;
 				p.addObject(o, session_id, true);
 			} else if (txt.equals("NEWVER_DEAD")) {
 				o.refDB = oref;
 				// появилась новая версия объекта и она удалена.
-				i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 0).executeUpdate();
+				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 0);
+				i = DUtil.executeUpdate(insV, true);
 				assert i==1 : "insert version touched rows: " + i;
-				i = DUtil.setStatementParams(del, o.refDB, session_id).executeUpdate();
+				DUtil.setStatementParams(del, o.refDB, session_id);
+				i = DUtil.executeUpdate(del, true);
 				assert i==1 : "update failed, rows:" + i;
 			} else if (txt.equals("NEWOBJECT")) {
 				// объект может быть удалённым, но о нём мы узнаём впервые.
 //				zip = o.deleted? null: DUtil.readHttpConnection(p.establishGET(new URL(o.rawref), true));
-				i = DUtil.setStatementParams(ins,p.host_id,session_id,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0).executeUpdate();
+				DUtil.setStatementParams(ins,p.host_id,session_id,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0);
+				i = DUtil.executeUpdate(ins, true, keys, 1);
 				assert i==1 : "insert object failed, rows touched:"+i;
-				o.refDB = ins.getGeneratedKeys().getLong(1);
+				o.refDB = keys[1];
 				// добавляем новую активную версию
-				i = DUtil.setStatementParams(insV,o.refDB,o.versionid,session_id,o.deleted?0:1).executeUpdate();
+				DUtil.setStatementParams(insV,o.refDB,o.versionid,session_id,o.deleted?0:1);
+				i = DUtil.executeUpdate(insV, true);
 				if (!o.deleted) p.addObject(o, session_id, true);
 			}
 		}
 		p.addObjectCommit(true);
-		commit();
 		i = 0;
 		for (PiObject o: objs) if (o.refDB<1){
 			i++;
 		}
 		assert i==0 : "" + i + " objects are not handled; all amount is " + objs.size() ;
-		assert validatedb();
 	}
-
+	private void fill_tmp4(ArrayList<PiObject> a, PiEntity e) throws SQLException {
+		DUtil.executeUpdate(prepareStatement("sql_tmp4_del", e.entity_id), true);
+		PreparedStatement ins = prepareStatement("sql_tmp4_ins");
+		assert a!=null;
+		for (PiObject o: a) {
+			DUtil.setStatementParams(ins, e.entity_id, o.objectid, o.versionid, o.deleted?1:0);
+			ins.addBatch();
+		}
+		DUtil.executeBatch(ins, true);
+	}
 	private void fill_tmp8(ArrayList<PiObject> a, PiHost p, PiEntity e) throws SQLException {
 		PreparedStatement
 				del = prepareStatement("sql_tmp8_del", e.entity_id)
@@ -931,22 +941,18 @@ public class Diffo implements IDiffo, Cloneable {
 	public void fullFarsch(PiHost p) 
 	throws SQLException, IOException, SAXException, ParseException {
 		boolean b = true;
-		int i = 10;
-//		p.download(false);
-//		while (!p.download(false) && --i > 0) ;
-//		if (true) return;
 
 		if (b && p.isSideAvailable(Side.Repository)) {
 			refreshMeta(p,Side.Repository);
 			refreshSWCV(p);
-			if ((p.swcv.size()>0)) {
-				askIndexRepository(p,10);
-			}
+			if ((p.swcv.size()>0)) 
+				askIndexRepository(p);
 		}
 		if (b && p.isSideAvailable(Side.Directory)) {
 			refreshMeta(p, Side.Directory);
 			askIndexDirectory(p);
 		}
+		tickIndexRequestQueue(true);
 		if (b && p.isSideAvailable(Side.SLD)) {
 			refreshMeta(p, Side.SLD);
 			askSld(p);
