@@ -310,7 +310,7 @@ public class Main {
 						pih = d.addPiHost(sid, xihost);
 						pih.setUserCredentials(uname, passwd);
 					}
-					d.askIndexDirectory(pih);
+					d.askIndexDirectory(pih, tx);
 				} else if ("transportCheck".equals(a0)) {
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
