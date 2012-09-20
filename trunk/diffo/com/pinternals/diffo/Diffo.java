@@ -632,7 +632,7 @@ public class Diffo implements IDiffo, Cloneable {
 
 	}
 	
-	public void askIndexDirectory(PiHost p) throws SQLException, IOException, SAXException {
+	public void askIndexDirectory(PiHost p, int tx) throws SQLException, IOException, SAXException {
 		Side d = Side.Directory;
 		PiEntity[] dirs = {
 				p.getEntity(d, "Party"),
