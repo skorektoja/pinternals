@@ -41,7 +41,7 @@ public class PiHost implements Runnable {
 //	private Diffo diffo = null;
 	protected Connection hostdb = null;
 	String hostdbfn = null; 
-	private PreparedStatement psNewOV = null, psGP = null; 
+	protected PreparedStatement psNewOV = null, psGP = null; 
 
 	public URL uroot;
 	private URL ucpahtml, uaf_schxml;
@@ -65,7 +65,7 @@ public class PiHost implements Runnable {
 //		this.uaf_schxml = new URL(sURL + Side.C_AF_SCH_XML);
 		this.host_id = host_id;
 		this.hostdb = hostdb;
-		this.hostdbfn = "diffo.DPI.6.db";
+		this.hostdbfn = "";
 		psNewOV = DUtil.prepareStatement(hostdb, "hosql_insOV_dirty");
 		psGP = DUtil.prepareStatement(hostdb, "hosql_getpayload");
 		timeoutMillis=30000;
@@ -142,7 +142,7 @@ public class PiHost implements Runnable {
 	 * @param side		для какой стороны составлять индекс
 	 * @param thrcnt	число тредов
 	 */
-	protected ArrayList<PiEntity> collectDocsRA(Side side, int thrcnt) throws IOException, SAXException {
+	protected ArrayList<PiEntity> collectDocsRA(Side side) throws IOException, SAXException {
 		// всё скачать и построить карту
 		ArrayList<PiEntity> es = new ArrayList<PiEntity>(200);
 		System.err.println("collectDocsRA for " + side);
@@ -420,12 +420,12 @@ public class PiHost implements Runnable {
 		}
 		return b;
 	}
-	public void addObject(PiObject o, long session_id, boolean batch) throws SQLException {
+	public void addObject(PiObject o, long session_id) throws SQLException {
 		// TODO: написать тексты для ассертов
 		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
 		assert psNewOV != null;
-//		hosql_insOV_dirty=INSERT INTO objlink (object_ref,object_id,version_id,session_id,url,is_dirty) \
-//	    VALUES (?1,?2,?3,?4,?5,1);
+//		hosql_insOV_dirty=INSERT INTO inbox (object_ref,object_id,version_id,session_id,url) \
+//	    VALUES (?1,?2,?3,?4,?5);
 		assert o!=null;
 		assert session_id!=0 && session_id!=-1;
 		assert o.refDB!=0;
@@ -436,82 +436,72 @@ public class PiHost implements Runnable {
 		DUtil.setStatementParams(psNewOV, o.refDB, o.objectid, o.versionid, session_id, o.rawref);
 		if (log.isLoggable(Level.FINE))
 			log.fine("before psNewOV for oid/vid " + UUtil.getStringUUIDfromBytes(o.objectid) + "/" + UUtil.getStringUUIDfromBytes(o.versionid));
-		if (batch)
-			psNewOV.addBatch();
-		else
-			psNewOV.executeUpdate();
-		dirtycnt++;
+		psNewOV.addBatch();
 	}
 
-	protected void addObjectCommit(boolean batch) throws SQLException {
-		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
-		assert psNewOV != null;
-		if (batch) psNewOV.executeBatch();
-		hostdb.commit();
-	}
-	int threadcount = 0;
-	ArrayList<PayloadFetcher> alPF = null;
+//	int threadcount = 0;
+//	ArrayList<PayloadFetcher> alPF = null;
+//
+//	class PayloadFetcher implements Runnable {
+//		URL u;
+//		long num;
+//		int rc = -1;
+//		HttpURLConnection h = null;
+//		byte[] vid;
+//		boolean error = false, ok = false;
+//		PayloadFetcher (String u, long lq, byte[] ver) throws MalformedURLException {
+//			this.u = new URL(u);
+//			num = lq;
+//			vid = ver;
+//		}
+//		public void run() {
+//			error = false;
+//			ok = false;
+//			try {
+//				h = establishGET(u, true);
+//				h.connect();
+//				rc = h.getResponseCode();
+//				if (rc != HttpURLConnection.HTTP_OK) {
+//					log.severe("HTTP client error " + h.getResponseCode() + " " + h.getURL());
+//					h.disconnect();
+//					error = true;
+//					System.out.println("ERROR " + num + " " + u.toExternalForm());
+//				} else {
+//					ok = true;
+//					System.out.println("OK " + num + " " + u.toExternalForm());
+//				}
+//			} catch (IOException e) {
+//				// TODO Auto-generated catch block
+//				System.err.println("Error when " + num + ", " + u.toExternalForm() );
+//				e.printStackTrace();
+//				Thread.currentThread().interrupt();
+//			}
+//			threadcount--;
+//		}
+//		byte[] readBytes() throws IOException {
+//			System.out.println(num);
+//			ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
+//			GZIPOutputStream z = new GZIPOutputStream(baos);
+//			InputStream in = h.getInputStream();
+//			try {
+//				int i = in.read();
+//				while (i!=-1) {
+//					z.write(i);
+//					i = in.read();
+//				}
+//			} catch (IOException i) {
+//				return null;
+//			}
+//			in.close();
+//			h.disconnect();
+//			z.finish();
+//			z.flush();
+//			ok = false;
+//			return baos.toByteArray();
+//		}
+//	}
 
-	class PayloadFetcher implements Runnable {
-		URL u;
-		long num;
-		int rc = -1;
-		HttpURLConnection h = null;
-		byte[] vid;
-		boolean error = false, ok = false;
-		PayloadFetcher (String u, long lq, byte[] ver) throws MalformedURLException {
-			this.u = new URL(u);
-			num = lq;
-			vid = ver;
-		}
-		public void run() {
-			error = false;
-			ok = false;
-			try {
-				h = establishGET(u, true);
-				h.connect();
-				rc = h.getResponseCode();
-				if (rc != HttpURLConnection.HTTP_OK) {
-					log.severe("HTTP client error " + h.getResponseCode() + " " + h.getURL());
-					h.disconnect();
-					error = true;
-					System.out.println("ERROR " + num + " " + u.toExternalForm());
-				} else {
-					ok = true;
-					System.out.println("OK " + num + " " + u.toExternalForm());
-				}
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				System.err.println("Error when " + num + ", " + u.toExternalForm() );
-				e.printStackTrace();
-				Thread.currentThread().interrupt();
-			}
-			threadcount--;
-		}
-		byte[] readBytes() throws IOException {
-			System.out.println(num);
-			ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
-			GZIPOutputStream z = new GZIPOutputStream(baos);
-			InputStream in = h.getInputStream();
-			try {
-				int i = in.read();
-				while (i!=-1) {
-					z.write(i);
-					i = in.read();
-				}
-			} catch (IOException i) {
-				return null;
-			}
-			in.close();
-			h.disconnect();
-			z.finish();
-			z.flush();
-			ok = false;
-			return baos.toByteArray();
-		}
-	}
-
-	protected boolean download(boolean check) throws SQLException, MalformedURLException, IOException {
+	protected boolean download() throws SQLException {
 		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
 		
 		PreparedStatement psPut = DUtil.prepareStatement(hostdb, "hosql_undirty")
@@ -520,64 +510,6 @@ public class PiHost implements Runnable {
 		ResultSet rs = DUtil.prepareStatement(hostdb, "hosql_getdirty").executeQuery();
 		int q=0, errors=0, ok=0, nonretr=0;
 		
-		threadcount = 0;
-		alPF = new ArrayList<PayloadFetcher>(100);
-		while (rs.next()) {
-			long is_dirty = rs.getLong(4);
-			assert is_dirty!=0 : "Attempt to retrieve already retrieved (is_dirty=0)";
-			if (is_dirty >= MAX_RETR_ATTEMPTS) {
-				nonretr++;
-				continue;
-			}
-			PayloadFetcher pfn = new PayloadFetcher(rs.getString(1),rs.getLong(2),rs.getBytes(3));
-			alPF.add(pfn);
-			Thread t = new Thread(pfn);
-			q++;
-			threadcount++;
-			t.start();
-			while (threadcount>10) {
-				for (PayloadFetcher pf: alPF) {
-					if (pf.ok) {
-						byte[] zp = pf.readBytes();
-						if (zp==null) continue;
-						DUtil.setStatementParams(psPut,pf.num,pf.vid,zp);
-						psPut.addBatch();
-						q++;
-					}
-				}
-			}
-		}
-		rs.close();
-		int wait = threadcount;
-		while (threadcount > 0 && wait>0) {
-			wait = 0;
-			for (PayloadFetcher pf: alPF) {
-				if (pf.ok) {
-					byte[] zp = pf.readBytes();
-					if (zp==null) continue;
-					DUtil.setStatementParams(psPut,pf.num,pf.vid,zp);
-					psPut.addBatch();
-					q++;
-				} else if (!pf.error) wait++;
-			}
-		}
-		// для всех оставшихся ищем ошибки
-		for (PayloadFetcher pf: alPF) 
-			if (pf.error) {
-				DUtil.setStatementParams(psInc,pf.num,pf.vid);
-				psInc.addBatch();
-				errors++;
-			}
-		if (q>0) psPut.executeBatch();
-		if (errors>0) psInc.executeBatch();
-		hostdb.commit();
-
-		if (q==0)
-			log.config(DUtil.format("piobject_download_empty",this.uroot.toExternalForm()));
-		else if (errors==0)
-			log.config(DUtil.format("piobject_download_ok",this.uroot.toExternalForm(), q));
-		else 
-			log.severe(DUtil.format("piobject_download_error",this.uroot.toExternalForm(), q, errors));
 
 		return q==0 || errors==0;
 	}
