@@ -36,7 +36,7 @@ public class Main {
 	public static void eclipser (String dbname) {
 		try {
 			LogManager.getLogManager().readConfiguration(Main.class.getResourceAsStream("/logging.properties"));
-			Diffo d = new Diffo(dbname, null);
+			Diffo d = new Diffo(dbname, null, 10);
 			
 			if (d.opendb() && (d.isDbExist() || d.createdb()) && d.validatedb()) {
 				if (!d.start_session()) 
@@ -82,7 +82,7 @@ public class Main {
 	public static void dbtester (String dbname) {
 		try {
 			LogManager.getLogManager().readConfiguration(Main.class.getResourceAsStream("/logging.properties"));
-			Diffo d = new Diffo(dbname, null);
+			Diffo d = new Diffo(dbname, null, 10);
 			
 			if (d.opendb() && (d.isDbExist() || d.createdb()) && d.validatedb()) {
 				if (!d.start_session()) 
@@ -111,7 +111,7 @@ public class Main {
 		try {
 			LogManager.getLogManager().readConfiguration(Main.class.getResourceAsStream("/logging.properties"));
 			Proxy prx = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 8888));
-			Diffo d = new Diffo(dbname, prx);
+			Diffo d = new Diffo(dbname, prx, 10);
 			Diffo.simulatedb();
 			
 			if (d.opendb() && (d.isDbExist() || d.createdb()) && d.validatedb()) {
@@ -256,7 +256,7 @@ public class Main {
 		}
 		
 		new HUtil(th);
-		Diffo d = new Diffo(dbfn, prx);
+		Diffo d = new Diffo(dbfn, prx, tx);
 		PiHost pih = null, pi0 = null, pi1 = null;
 		boolean started = false, b;
 		try {
@@ -303,14 +303,16 @@ public class Main {
 						pih = d.addPiHost(sid, xihost);
 						pih.setUserCredentials(uname, passwd);
 					}
-					d.askIndexRepository(pih, tx);
+					d.askIndexRepository(pih);
+					d.tickIndexRequestQueue(true);
 				} else if ("askIndexDirectory".equals(a0)) {
 					if (!started) continue;
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
 						pih.setUserCredentials(uname, passwd);
 					}
-					d.askIndexDirectory(pih, tx);
+					d.askIndexDirectory(pih);
+					d.tickIndexRequestQueue(true);
 				} else if ("transportCheck".equals(a0)) {
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
