@@ -15,6 +15,9 @@ public class HUtil implements Runnable {
 	static Thread handler;
 	static private boolean shutdown;
 
+	public HUtil() {
+		this(10);
+	}
 	public HUtil(int threads) {
 		maxthreads = threads;
 		incoming = new LinkedList<HTask>();
@@ -70,7 +73,7 @@ public class HUtil implements Runnable {
 }
 
 class HTask implements Runnable {
-	static int attempts403 = 5;
+	static int attempts403 = 15;
 	HttpURLConnection hc;
 	String method, post;
 	int rc;

@@ -174,6 +174,7 @@ public class Main {
 			ex.printStackTrace();
 		}
 		
+		int tx=5, th=30;
 		Options opts = new Options();
 		opts.addOption("h", "help", false, "help");
 		opts.addOption("v", "version", false, "print the version information and exit");
@@ -183,6 +184,8 @@ public class Main {
 		opts.addOption("x", "xihost", true, "URL as http://first:50000 or https://second:59900" );
 		opts.addOption("u", "uname", true, "user name");
 		opts.addOption("p", "passwd", true, "password");
+		opts.addOption(null, "tx", true, "thread indexing parallel (default is " + tx + ")");
+		opts.addOption(null, "th", true, "thread http parallel (default is " + th + ")");
 //		opts.addOption("r", "report", true, "report name");
 		opts.addOption(OptionBuilder.withLongOpt("http-proxy-host")
 					.withDescription("http proxy hostname or IP address")
@@ -243,6 +246,8 @@ public class Main {
 		if (cmd.hasOption("xihost")) xihost = cmd.getOptionValue("xihost");
 		if (cmd.hasOption("uname")) uname = cmd.getOptionValue("uname");
 		if (cmd.hasOption("passwd")) passwd = cmd.getOptionValue("passwd");
+		if (cmd.hasOption("tx")) tx = Integer.parseInt(cmd.getOptionValue("tx"));
+		if (cmd.hasOption("th")) th = Integer.parseInt(cmd.getOptionValue("th"));
 		
 //		boolean e = sid==null && xihost==null && uname==null && passwd==null;
 		if (cmd.getArgs()==null || cmd.getArgs().length==0) {
@@ -250,6 +255,7 @@ public class Main {
 			return;
 		}
 		
+		new HUtil(th);
 		Diffo d = new Diffo(dbfn, prx);
 		PiHost pih = null, pi0 = null, pi1 = null;
 		boolean started = false, b;
@@ -297,7 +303,7 @@ public class Main {
 						pih = d.addPiHost(sid, xihost);
 						pih.setUserCredentials(uname, passwd);
 					}
-					d.askIndexRepository(pih);
+					d.askIndexRepository(pih, tx);
 				} else if ("askIndexDirectory".equals(a0)) {
 					if (!started) continue;
 					if (pih==null) {

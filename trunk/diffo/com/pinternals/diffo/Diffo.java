@@ -33,7 +33,6 @@ public class Diffo implements IDiffo, Cloneable {
 	private ArrayList<PiHost> pihosts = new ArrayList<PiHost>(10);
 	private Connection conn = null;
 	private File dbfile = null;
-	private HUtil hutil = new HUtil(10);
 
 	public Long session_id = -1L;
 	public Proxy proxy;
@@ -554,7 +553,7 @@ public class Diffo implements IDiffo, Cloneable {
 	}
 	
 
-	public void askIndexRepository(PiHost p) throws IOException, SQLException, SAXException {
+	public void askIndexRepository(PiHost p, int mx) {
 		Side r = Side.Repository;
 		PiEntity[] reps = {p.getEntity(r, "namespdecl"),
 				p.getEntity(r, "ifmtypedef"),			// Data type
@@ -619,7 +618,6 @@ public class Diffo implements IDiffo, Cloneable {
 			} else
 				log.severe("Entity is null!");
 		}
-		int mx=4;
 		while (workers.size()!=0 || queue.size()!=0) {
 			if (workers.size()>0 && queue.size()<mx) {
 				Thread w = workers.remove(0);
@@ -942,7 +940,7 @@ public class Diffo implements IDiffo, Cloneable {
 			refreshMeta(p,Side.Repository);
 			refreshSWCV(p);
 			if ((p.swcv.size()>0)) {
-				askIndexRepository(p);
+				askIndexRepository(p,10);
 			}
 		}
 		if (b && p.isSideAvailable(Side.Directory)) {
