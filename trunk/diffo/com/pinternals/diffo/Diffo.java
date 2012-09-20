@@ -626,7 +626,10 @@ public class Diffo implements IDiffo, Cloneable {
 				w.start();
 				queue.add(w);
 			}
-			for (Thread w: queue) if (!w.isAlive()) queue.remove(w);
+			for (Thread w: queue) if (!w.isAlive()) { 
+				queue.remove(w);
+				break;
+			}
 		}
 
 	}
