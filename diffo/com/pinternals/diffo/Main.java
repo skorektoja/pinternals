@@ -18,6 +18,9 @@ import org.apache.commons.cli.PosixParser;
 import org.xml.sax.SAXException;
 
 import com.pinternals.diffo.impl.DifferencerNode;
+//import org.apache.http.auth.UsernamePasswordCredentials;
+//import org.apache.http.client.methods.HttpGet;
+//import org.apache.http.client.methods.HttpGet;
 
 public class Main {
 	private static void checkInputStream(InputStream gis) throws IOException {
@@ -41,7 +44,7 @@ public class Main {
 				else {
 					System.out.println("Session " + d.session_id + " started OK");
 					PiHost xid = d.addPiHost("XID", "http://tralala");
-					PiHost xiq = d.addPiHost("XIQ", "http://trulala");
+					PiHost xiq = d.addPiHost("XIQ", "http://blahbla");
 
 					ArrayList<DiffItem> l, r;
 					d.refreshMeta(xid);
@@ -295,6 +298,13 @@ public class Main {
 						pih.setUserCredentials(uname, passwd);
 					}
 					d.askIndexRepository(pih);
+				} else if ("askIndexDirectory".equals(a0)) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					d.askIndexDirectory(pih);
 				} else if ("transportCheck".equals(a0)) {
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
@@ -315,6 +325,7 @@ public class Main {
 				d.finish_session();
 				d.validatedb();
 				d.closedb();
+				d.shutdown();
 			}
 		} catch (Exception ex) {
 			System.err.println("Exception:" + ex.getMessage());

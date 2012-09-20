@@ -1,7 +1,9 @@
 package com.pinternals.diffo;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.Proxy;
@@ -14,6 +16,8 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.GZIPOutputStream;
@@ -76,7 +80,6 @@ public class PiHost implements Runnable {
 		String token = uname + ":" + passwd;
 		basicAuth = "Basic " + new String(new BASE64Encoder().encode(token.getBytes()));
 	}
-
 	// -------------------------------------- HTTP services
 	private HttpURLConnection establishPOST(URL u, boolean useCredentials) throws MalformedURLException, IOException {
 		HttpURLConnection huc = DUtil.getHttpConnection(proxy, u, timeoutMillis);
@@ -136,31 +139,63 @@ public class PiHost implements Runnable {
 	}
 	/**
 	 * Собирает для repository и directory
+	 * @param side		для какой стороны составлять индекс
+	 * @param thrcnt	число тредов
 	 */
-	protected ArrayList<PiEntity> collectDocsRA(Side side) throws IOException, SAXException {
+	protected ArrayList<PiEntity> collectDocsRA(Side side, int thrcnt) throws IOException, SAXException {
 		// всё скачать и построить карту
 		ArrayList<PiEntity> es = new ArrayList<PiEntity>(200);
+		System.err.println("collectDocsRA for " + side);
 		if (side == Side.SLD) {
 			buildSLD(side, es);
 			return es;
 		}
-		URL u = side.url(uroot);
-		HttpURLConnection h = establishGET(u, true);
-		h.connect();
-		SQEntityAttr sq = PiEntity.parse_ra(h.getInputStream(), "types");
-		h.disconnect();
-		for (int i=0; i<sq.size; i++) 
+		final URL u = side.url(uroot);
+		HttpURLConnection h;
+		int f = HUtil.addGet(establishGET(u, true));
+		while (!HUtil.isDone(f)) {
+			Thread.yield();
+		}
+		ByteArrayInputStream bis = HUtil.getBAIS(f);
+		SQEntityAttr sq = PiEntity.parse_ra(bis, "types");
+		
+		for (int i=0; i<sq.size; i++) {
 			es.add(new PiEntity(0,side,sq.matrix[i][0],sq.matrix[i][1],i));
-
+//			System.out.println(sq.matrix[i][0]);
+		}
+		
+		TreeMap<Integer, PiEntity> hmQ = new TreeMap<Integer, PiEntity>(); 
 		for (PiEntity e: es) {
-			h = establishPOST(u, true);
-			DUtil.putPOST(h, e.side.createQueryResultAttributes(e.intname));
-			h.connect();
-			sq = PiEntity.parse_ra(h.getInputStream(), "result");
-			h.disconnect();
+			f = HUtil.addPost(establishPOST(u, true), e.side.createQueryResultAttributes(e.intname));
+			hmQ.put(f, e);
+		}
+		while (hmQ.size()>0) {
+			f = hmQ.firstKey();
+			while (!HUtil.isDone(f)) {
+				Thread.yield();
+			}
+			bis = HUtil.getBAIS(f);
+			sq = PiEntity.parse_ra(bis, "result");
+			PiEntity e = hmQ.get(f);
 			for (int j=0; j<sq.size; j++)
 				e.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
+			hmQ.remove(f);
 		}
+//		int j = 0 / 0;
+		
+//		
+//						sq = PiEntity.parse_ra(h.getInputStream(), "result");
+//						h.disconnect();
+//						for (int j=0; j<sq.size; j++)
+//							e2.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
+//						System.err.println(".." + q + " " + e2.intname + ": " + e2.attrs.size() + "}");
+//						
+//					} catch (Exception e) {
+//						e.printStackTrace(System.err);
+//					}
+//				}
+//			}; // end Runnable
+
 		return es;
 	}
 	protected void addEntity(PiEntity e) {
@@ -302,10 +337,6 @@ public class PiHost implements Runnable {
 	@Override
 	public void run() {
 		// TODO Auto-generated method stub
-		if (action==null) return;
-		if ("askIndex".equals(action)) {
-			
-		}
 	}
 	
 	public ArrayList<PiObject> askIndex(PiEntity e) throws IOException, SAXException {
@@ -431,6 +462,67 @@ public class PiHost implements Runnable {
 		if (batch) psNewOV.executeBatch();
 		hostdb.commit();
 	}
+	int threadcount = 0;
+	ArrayList<PayloadFetcher> alPF = null;
+
+	class PayloadFetcher implements Runnable {
+		URL u;
+		long num;
+		int rc = -1;
+		HttpURLConnection h = null;
+		byte[] vid;
+		boolean error = false, ok = false;
+		PayloadFetcher (String u, long lq, byte[] ver) throws MalformedURLException {
+			this.u = new URL(u);
+			num = lq;
+			vid = ver;
+		}
+		public void run() {
+			error = false;
+			ok = false;
+			try {
+				h = establishGET(u, true);
+				h.connect();
+				rc = h.getResponseCode();
+				if (rc != HttpURLConnection.HTTP_OK) {
+					log.severe("HTTP client error " + h.getResponseCode() + " " + h.getURL());
+					h.disconnect();
+					error = true;
+					System.out.println("ERROR " + num + " " + u.toExternalForm());
+				} else {
+					ok = true;
+					System.out.println("OK " + num + " " + u.toExternalForm());
+				}
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				System.err.println("Error when " + num + ", " + u.toExternalForm() );
+				e.printStackTrace();
+				Thread.currentThread().interrupt();
+			}
+			threadcount--;
+		}
+		byte[] readBytes() throws IOException {
+			System.out.println(num);
+			ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
+			GZIPOutputStream z = new GZIPOutputStream(baos);
+			InputStream in = h.getInputStream();
+			try {
+				int i = in.read();
+				while (i!=-1) {
+					z.write(i);
+					i = in.read();
+				}
+			} catch (IOException i) {
+				return null;
+			}
+			in.close();
+			h.disconnect();
+			z.finish();
+			z.flush();
+			ok = false;
+			return baos.toByteArray();
+		}
+	}
 
 	protected boolean download(boolean check) throws SQLException, MalformedURLException, IOException {
 		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
@@ -440,7 +532,9 @@ public class PiHost implements Runnable {
 		assert psPut != null : "host DB error when prepare update clause";
 		ResultSet rs = DUtil.prepareStatement(hostdb, "hosql_getdirty").executeQuery();
 		int q=0, errors=0, ok=0, nonretr=0;
-		ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
+		
+		threadcount = 0;
+		alPF = new ArrayList<PayloadFetcher>(100);
 		while (rs.next()) {
 			long is_dirty = rs.getLong(4);
 			assert is_dirty!=0 : "Attempt to retrieve already retrieved (is_dirty=0)";
@@ -448,50 +542,48 @@ public class PiHost implements Runnable {
 				nonretr++;
 				continue;
 			}
-			URL u = new URL(rs.getString(1));
-			long ref = rs.getLong(2);
-			byte []vid = rs.getBytes(3);
-			HttpURLConnection h = establishGET(u, true);
-			h.connect();
-			if (h.getResponseCode()!=HttpURLConnection.HTTP_OK) {
-				log.severe("HTTP client error " + h.getResponseCode() + " " + h.getURL());
-				h.disconnect();
-				// увеличиваем счётчик ошибок
-				DUtil.setStatementParams(psInc, ref, vid);
+			PayloadFetcher pfn = new PayloadFetcher(rs.getString(1),rs.getLong(2),rs.getBytes(3));
+			alPF.add(pfn);
+			Thread t = new Thread(pfn);
+			q++;
+			threadcount++;
+			t.start();
+			while (threadcount>10) {
+				for (PayloadFetcher pf: alPF) {
+					if (pf.ok) {
+						byte[] zp = pf.readBytes();
+						if (zp==null) continue;
+						DUtil.setStatementParams(psPut,pf.num,pf.vid,zp);
+						psPut.addBatch();
+						q++;
+					}
+				}
+			}
+		}
+		rs.close();
+		int wait = threadcount;
+		while (threadcount > 0 && wait>0) {
+			wait = 0;
+			for (PayloadFetcher pf: alPF) {
+				if (pf.ok) {
+					byte[] zp = pf.readBytes();
+					if (zp==null) continue;
+					DUtil.setStatementParams(psPut,pf.num,pf.vid,zp);
+					psPut.addBatch();
+					q++;
+				} else if (!pf.error) wait++;
+			}
+		}
+		// для всех оставшихся ищем ошибки
+		for (PayloadFetcher pf: alPF) 
+			if (pf.error) {
+				DUtil.setStatementParams(psInc,pf.num,pf.vid);
 				psInc.addBatch();
 				errors++;
-			} else {
-				baos.reset();
-				GZIPOutputStream gos = new GZIPOutputStream(baos);
-				int i = h.getInputStream().read(), z=0;
-				while (i!=-1) {
-					gos.write(i);
-					z++;
-					i = h.getInputStream().read();
-				}
-				h.getInputStream().close();
-				h.disconnect();
-				gos.close();
-				baos.close();
-				byte ba[] = baos.toByteArray();
-				log.config(DUtil.format("piobject_download", u.toExternalForm(), z, ba.length));
-				DUtil.setStatementParams(psPut, ref, vid, ba);
-				psPut.addBatch();
-				ok++;
 			}
-			q++;
-		}
-		if (errors>0) {
-			psInc.executeBatch();
-			hostdb.commit();
-		}
-		if (ok>0) {
-			psPut.executeBatch();
-			hostdb.commit();
-		}
-
-		assert !check || q==dirtycnt : 
-			"dirty URLs counts are mismatch: now it is " + q + " but registered before " + dirtycnt;
+		if (q>0) psPut.executeBatch();
+		if (errors>0) psInc.executeBatch();
+		hostdb.commit();
 
 		if (q==0)
 			log.config(DUtil.format("piobject_download_empty",this.uroot.toExternalForm()));
