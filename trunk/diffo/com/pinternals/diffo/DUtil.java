@@ -127,6 +127,20 @@ public class DUtil {
             lock.unlock();
         }
 	}
+	public static int executeUpdate(PreparedStatement ps, boolean commit, long[] keys, int q) throws SQLException {
+		lock.lock();
+		try {
+            int i = ps.executeUpdate();
+            if (commit) ps.getConnection().commit();
+            for (int j=1;j<=q;j++)
+            	keys[j] = ps.getGeneratedKeys().getLong(j);
+            return i;
+        } finally {
+            lock.unlock();
+        }
+	}
+	
+	
 	public static int[] executeBatch(PreparedStatement ps, boolean commit) throws SQLException {
 		lock.lock();
 		try {
