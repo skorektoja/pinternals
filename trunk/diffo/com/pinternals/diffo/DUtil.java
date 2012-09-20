@@ -17,6 +17,8 @@ import java.util.Formatter;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 import java.util.TreeSet;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,6 +33,7 @@ public class DUtil {
 	private static ResourceBundle RES_SQL = ResourceBundle.getBundle("com.pinternals.diffo.sql");
 	public static TreeSet<String> sqlKeySet = new TreeSet<String>(RES_SQL.keySet());
 	private static ResourceBundle RES_MSG = ResourceBundle.getBundle("com.pinternals.diffo.messages");
+	private static final Lock lock = new ReentrantLock();
 //	public static ResourceBundle logBundle = ResourceBundle.getBundle("logging.properties");
 //	public static String logBundle = "com.pinternals.diffo.logging";
 	
@@ -114,7 +117,26 @@ public class DUtil {
 		setStatementParams(ps, objs);
 		return ps;
 	}
-
+	public static int executeUpdate(PreparedStatement ps, boolean commit) throws SQLException {
+		lock.lock();
+		try {
+            int i = ps.executeUpdate();
+            if (commit) ps.getConnection().commit();
+            return i;
+        } finally {
+            lock.unlock();
+        }
+	}
+	public static int[] executeBatch(PreparedStatement ps, boolean commit) throws SQLException {
+		lock.lock();
+		try {
+			int[] a = ps.executeBatch();
+			if (commit) ps.getConnection().commit();
+            return a;
+        } finally {
+            lock.unlock();
+        }
+	}
 	// -------------------------------------------- работа с http
 	public static HttpURLConnection getHttpConnection(Proxy prx, URL u, int millis) throws IOException {
 		HttpURLConnection h = null;
