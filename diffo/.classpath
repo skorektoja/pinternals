@@ -8,6 +8,5 @@
 	<classpathentry kind="lib" path="saplib/sap.com~tc~sld~sldclient_lib.jar"/>
 	<classpathentry kind="lib" path="lib/tagsoup-1.2.1.jar"/>
 	<classpathentry kind="lib" path="lib/commons-cli-1.2.jar"/>
-	<classpathentry kind="lib" path="lib/httpclient-4.2.1.jar"/>
 	<classpathentry kind="output" path=""/>
 </classpath>
