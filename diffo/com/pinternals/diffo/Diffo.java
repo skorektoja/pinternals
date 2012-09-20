@@ -587,11 +587,12 @@ public class Diffo implements IDiffo, Cloneable {
 				p.getEntity(r, "ifmmessif"),
 				p.getEntity(r, "MAPPING_TEST"),
 				p.getEntity(r, "DOCU"),
-				p.getEntity(r, "arismodelext"),
-				p.getEntity(r, "arisprofile"),
-				p.getEntity(r, "ariscxnocc"),
-				p.getEntity(r, "arisobjocc"),
-				p.getEntity(r, "aristextocc"),
+
+//				p.getEntity(r, "arismodelext"),
+//				p.getEntity(r, "arisprofile"),
+//				p.getEntity(r, "ariscxnocc"),
+//				p.getEntity(r, "arisobjocc"),
+//				p.getEntity(r, "aristextocc"),
 
 //				p.getEntity(r, ""),
 //				p.getEntity(r, ""),
@@ -602,7 +603,6 @@ public class Diffo implements IDiffo, Cloneable {
 		for (final PiEntity e: reps) {
 			if (e!=null) {
 				Thread w = new Thread(new Runnable(){
-//					boolean done = false;
 					public void run() {
 						try {
 							handleIndexRepositoryObjectsVersions(p2.askIndex(e), p2, e);
@@ -613,15 +613,13 @@ public class Diffo implements IDiffo, Cloneable {
 						} catch (SAXException e) {
 							e.printStackTrace();
 						}
-//						done = true;
 					}
 				});
 				workers.add(w);
 			} else
 				log.severe("Entity is null!");
 		}
-		int i=0, mx=2, k, a;
-		boolean b = true;
+		int mx=4;
 		while (workers.size()!=0 || queue.size()!=0) {
 			if (workers.size()>0 && queue.size()<mx) {
 				Thread w = workers.remove(0);
@@ -629,7 +627,6 @@ public class Diffo implements IDiffo, Cloneable {
 				queue.add(w);
 			}
 			for (Thread w: queue) if (!w.isAlive()) queue.remove(w);
-			Thread.yield();
 		}
 
 	}
@@ -746,30 +743,6 @@ public class Diffo implements IDiffo, Cloneable {
 		assert validatedb();
 	}
 
-	private void fill_tmp7(ArrayList<PiObject> a, PiHost p) throws SQLException {
-		prepareStatement("sql_tmp7_del").execute();
-		PreparedStatement ins = prepareStatement("sql_tmp7_ins"), sel=prepareStatement("sql_tmp7_idx");
-		assert a!=null;
-		int i=0;
-		for (PiObject o: a) {
-			Object []x = o.extrSwcvSp();
-			// (oid,vid,swcv,sp,del,host_id)
-			DUtil.setStatementParams(ins, o.objectid, o.versionid, x[0], x[1], o.deleted?1:0, p.host_id, i++);
-			ins.addBatch();
-		}
-		ins.executeBatch();
-		commit();
-		ResultSet rs = sel.executeQuery();
-		i = 0;
-		while (rs.next()) {
-			a.get(i).refSWCV = rs.getLong(1);
-			assert a.get(i).refSWCV!=0;
-			assert i==rs.getLong(2);
-			i++;
-		}
-		rs.close();
-	}
-	
 	private void fill_tmp8(ArrayList<PiObject> a, PiHost p, PiEntity e) throws SQLException {
 		PreparedStatement
 				del = prepareStatement("sql_tmp8_del", e.entity_id)
@@ -801,7 +774,7 @@ public class Diffo implements IDiffo, Cloneable {
 	throws SQLException {
 		assert objs!=null && p!=null && e!=null;
 		log.entering(Diffo.class.getCanonicalName(), "handleIndexRepositoryObjectsVersions");
-		PreparedStatement sel = prepareStatement("sql_objrep_report", e.entity_id)
+		final PreparedStatement sel = prepareStatement("sql_objrep_report", e.entity_id)
 			, del = prepareStatement("sql_objrep_del")
 			, deactV = prepareStatement("sql_ver_deactv")
 			, ins = prepareStatement("sql_objrep_ins")
@@ -850,8 +823,7 @@ public class Diffo implements IDiffo, Cloneable {
 					break;
 				}
 			}
-//			System.out.println("#" + txt + " object " + oref);
-//			System.out.println(o==null ? " null " : o );
+			long keys[] = new long[10];
 			if (txt.equals("CURRENT_LIVE") || txt.equals("CURRENT_DEAD")) 
 				o.refDB = oref;
 			else if (txt.equals("NEWOBJECT")) {
@@ -869,9 +841,9 @@ public class Diffo implements IDiffo, Cloneable {
 					if (log.isLoggable(Level.FINE))
 						log.fine("before sql_objrep_ins for " + o.rawref );
 					DUtil.setStatementParams(ins,p.host_id,session_id,o.refSWCV,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0);
-					i = DUtil.executeUpdate(ins, true);
+					i = DUtil.executeUpdate(ins,true,keys,1);
 					assert i==1: "insertion REP object failed, rows affected:"+i;
-					o.refDB = ins.getGeneratedKeys().getLong(1);
+					o.refDB = keys[1];
 					assert o.refDB!=0 : "bad object_ref:" + o.refDB;
 					DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, o.deleted?0:1);
 					i = DUtil.executeUpdate(insV, true);
@@ -919,7 +891,7 @@ public class Diffo implements IDiffo, Cloneable {
 		log.fine("before p.addObjectCommit");
 		p.addObjectCommit(true);
 		log.fine("after diffo commit");
-		assert validatedb();
+//		assert validatedb();
 	}
 
 	public void askSld(PiHost p) throws IOException, SAXException {
