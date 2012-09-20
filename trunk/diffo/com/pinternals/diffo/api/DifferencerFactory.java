@@ -23,8 +23,8 @@ public class DifferencerFactory {
 		hm.remove(i);
 	}
 	
-	public static IDiffo getDiffo(String dbFilePath, Proxy prx) {
-		Diffo d = new Diffo(dbFilePath, prx);
+	public static IDiffo getDiffo(String dbFilePath, Proxy prx, int tx) {
+		Diffo d = new Diffo(dbFilePath, prx, tx);
 		hm.put(d, d);
 		return d;
 	}

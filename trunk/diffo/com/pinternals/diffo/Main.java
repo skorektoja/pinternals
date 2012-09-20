@@ -257,7 +257,7 @@ public class Main {
 		
 		new HUtil(th);
 		Diffo d = new Diffo(dbfn, prx, tx);
-		PiHost pih = null, pi0 = null, pi1 = null;
+		PiHost pih = null;
 		boolean started = false, b;
 		try {
 			assert Diffo.simulatedb() : "SimulateDB error";
@@ -313,6 +313,24 @@ public class Main {
 					}
 					d.askIndexDirectory(pih);
 					d.tickIndexRequestQueue(true);
+				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					String s1, s2[];
+					s1 = a0.substring("refresh(".length());
+					s1 = s1.substring(0, s1.length()-1);
+					s2 = s1.split(",");
+					Side sd = Side.get(s2[0]);
+					s1 = s2[1];
+					PiEntity e = pih.getEntity(sd, s1);
+					assert e!=null : "Entity " + s2[0] + "/" + s2[1] + " isn't detected";
+					if (e!=null) {
+						d.putIndexRequestInQueue(pih, e);
+						d.tickIndexRequestQueue(true);
+					}
 				} else if ("transportCheck".equals(a0)) {
 					if (pih==null) {
 						pih = d.addPiHost(sid, xihost);
@@ -336,7 +354,7 @@ public class Main {
 			}
 		} catch (Exception ex) {
 			d.shutdown();
-			System.err.println("Exception:" + ex.getMessage());
+			System.err.println("Exception: " + ex.getMessage());
 			ex.printStackTrace();
 		}
 	}

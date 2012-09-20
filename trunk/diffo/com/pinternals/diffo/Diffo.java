@@ -421,7 +421,7 @@ public class Diffo implements IDiffo, Cloneable {
 				x.attrs.add(new ResultAttribute(rsa.getString(1), rsa.getString(2), rsa.getInt(3)));
 			db.add(x);
 		}
-		if (forceonline || db.isEmpty()) online = p.collectDocsRA(side, 2);
+		if (forceonline || db.isEmpty()) online = p.collectDocsRA(side);
 		for (PiEntity x: online) {
 			q = db.indexOf(x);
 			if (q == -1) {
@@ -452,7 +452,6 @@ public class Diffo implements IDiffo, Cloneable {
 		
 		commit();
 		assert !forceonline || db.isEmpty() : "there are " + db.size() + " entities unknown: " + side + " at " + p.sid;
-		assert validatedb() : "DB is invalid"; 
 	}
 
 
@@ -714,7 +713,7 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1);
 				i = DUtil.executeUpdate(insV,true);
 				assert i==1 : "insert version touched rows: " + i;
-				p.addObject(o, session_id, true);
+				p.addObject(o, session_id);
 			} else if (txt.equals("NEWVER_DEAD")) {
 				o.refDB = oref;
 				// появилась новая версия объекта и она удалена.
@@ -734,10 +733,10 @@ public class Diffo implements IDiffo, Cloneable {
 				// добавляем новую активную версию
 				DUtil.setStatementParams(insV,o.refDB,o.versionid,session_id,o.deleted?0:1);
 				i = DUtil.executeUpdate(insV, true);
-				if (!o.deleted) p.addObject(o, session_id, true);
+				if (!o.deleted) p.addObject(o, session_id);
 			}
 		}
-		p.addObjectCommit(true);
+		DUtil.executeBatch(p.psNewOV, true);
 		i = 0;
 		for (PiObject o: objs) if (o.refDB<1){
 			i++;
@@ -862,7 +861,7 @@ public class Diffo implements IDiffo, Cloneable {
 					if (!o.deleted) {
 						if (log.isLoggable(Level.FINE))
 							log.fine("try to add object " + o + " in session " + session_id);
-						p.addObject(o, session_id, true);
+						p.addObject(o, session_id);
 					}
 				}
 			} else if (txt.equals("NEWVER_LIVE")) {
@@ -877,7 +876,7 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1);
 				i = DUtil.executeUpdate(insV, true);
 				assert i==1 : "insert version touched rows: " + i;
-				p.addObject(o, session_id, true);
+				p.addObject(o, session_id);
 			} else if (txt.equals("NEWVER_DEAD")) {
 				assert !swcv.is_sap();
 				o.refDB = oref;
@@ -899,10 +898,7 @@ public class Diffo implements IDiffo, Cloneable {
 		if (i!=0) {
 			assert i==0: i+" objects are not handled; all amount is " + objs.size();
 		}
-		log.fine("before p.addObjectCommit");
-		p.addObjectCommit(true);
-		log.fine("after diffo commit");
-//		assert validatedb();
+		DUtil.executeBatch(p.psNewOV, true);
 	}
 
 	public void askSld(PiHost p) throws IOException, SAXException {
