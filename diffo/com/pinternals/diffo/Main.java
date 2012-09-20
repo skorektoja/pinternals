@@ -325,9 +325,9 @@ public class Main {
 				d.finish_session();
 				d.validatedb();
 				d.closedb();
-				d.shutdown();
 			}
 		} catch (Exception ex) {
+			d.shutdown();
 			System.err.println("Exception:" + ex.getMessage());
 			ex.printStackTrace();
 		}

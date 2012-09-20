@@ -151,7 +151,6 @@ public class PiHost implements Runnable {
 			return es;
 		}
 		final URL u = side.url(uroot);
-		HttpURLConnection h;
 		int f = HUtil.addGet(establishGET(u, true));
 		while (!HUtil.isDone(f)) {
 			Thread.yield();
@@ -181,21 +180,6 @@ public class PiHost implements Runnable {
 				e.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
 			hmQ.remove(f);
 		}
-//		int j = 0 / 0;
-		
-//		
-//						sq = PiEntity.parse_ra(h.getInputStream(), "result");
-//						h.disconnect();
-//						for (int j=0; j<sq.size; j++)
-//							e2.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
-//						System.err.println(".." + q + " " + e2.intname + ": " + e2.attrs.size() + "}");
-//						
-//					} catch (Exception e) {
-//						e.printStackTrace(System.err);
-//					}
-//				}
-//			}; // end Runnable
-
 		return es;
 	}
 	protected void addEntity(PiEntity e) {
@@ -263,7 +247,7 @@ public class PiHost implements Runnable {
 	 * @throws IOException
 	 * @throws SAXException
 	 * @throws ParseException
-	 */
+	 
 	public ArrayList<SWCV> askSWCV() throws IOException, SAXException, ParseException {
 		PiEntity e = getEntity(Side.Repository, "workspace");
 		assert e != null: "SWCV not found in entities";
@@ -284,9 +268,9 @@ public class PiHost implements Runnable {
 		for (PiObject po: tmp) 
 			rez.add(new SWCV(po));
 		return rez;
-	}
+	} */
 	
-	public ArrayList<SWCV> askSwcvSeparated() throws IOException, SAXException, ParseException {
+	public ArrayList<SWCV> askSwcv() throws IOException, SAXException, ParseException {
 		PiEntity e = getEntity(Side.Repository, "workspace");
 		assert e != null: "SWCV not found in entities";
 		String sDef, sDep;
@@ -294,6 +278,9 @@ public class PiHost implements Runnable {
 		sDef="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=COMPONENT_NAME&result=COMPONENT_VENDOR&result=WS_ID&result=MODIFYDATE&result=MODIFYUSER&result=WS_NAME&result=CAPTION&result=ELEMENTTYPEID&result=NAME&result=VENDOR&result=VERSION&result=SWC_GUID&result=WS_TYPE&result=EDITABLE&result=ORIGINAL&result=ELEMENTTYPEID&result=DEVLINE&result=WS_ORDER&action=Start+query";
 		// dependencies
 		sDep="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=DEPTYPE&result=WS_ID&result=DEPWS_ID&result=DEPWS_NAME&result=WS_ORDER&result=SEQNO&result=DEVLINE&action=Start+query";
+
+		//TODO: переписать на HUtil
+		
 		// whole template
 		HttpURLConnection h = establishPOST(Side.Repository.url(uroot), true);
 		DUtil.putPOST(h, sDef);
@@ -356,23 +343,25 @@ public class PiHost implements Runnable {
 		} else
 			assert false: "Unknown side: "+e.side.txt();
 
-		int ia=0, id=0;
+		int ia=0, id=0, ha=0, hd=0;
 		ArrayList<PiObject> rez = null, del = null ;
-		if (qactiv!=null) {
-			HttpURLConnection ha = establishPOST(e.side.url(uroot), true);
-			DUtil.putPOST(ha, qactiv);
-			ha.connect();
-			rez = e.parse_index(ha.getInputStream(),false);
-			ia = rez.size();
-			ha.disconnect();
-			ha = null;
+		if (qactiv!=null) 
+			ha = HUtil.addPost(establishPOST(e.side.url(uroot), true), qactiv);
+		if (qdel!=null) 
+			hd = HUtil.addPost(establishPOST(e.side.url(uroot), true), qdel);
+		while ( (ha!=0 && !HUtil.isDone(ha)) ||
+				(hd!=0 && !HUtil.isDone(hd))) {
+			Thread.yield();
 		}
-		if (qdel!=null) {
-			HttpURLConnection hd = establishPOST(e.side.url(uroot), true);
-			DUtil.putPOST(hd, qdel);
-			hd.connect();
-			del = e.parse_index(hd.getInputStream(),true);
-			hd.disconnect();
+		ByteArrayInputStream bis;
+		if (ha!=0) {
+			bis = HUtil.getBAIS(ha);
+			rez = e.parse_index(bis,false);
+			ia = rez.size();
+		}
+		if (hd!=0) {
+			bis = HUtil.getBAIS(hd);
+			del = e.parse_index(bis,true);
 			if (del.size()>0) {
 				if (rez==null) 
 					rez = del;
@@ -380,8 +369,6 @@ public class PiHost implements Runnable {
 					rez.addAll(del);
 			}
 			id = rez.size();
-			del = null;
-			hd = null;
 		}
 		log.info(DUtil.format("sq01", e.intname, e.entity_id, ia, id));
 		return rez;

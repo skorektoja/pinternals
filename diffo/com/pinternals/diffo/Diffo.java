@@ -14,6 +14,8 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -296,6 +298,7 @@ public class Diffo implements IDiffo, Cloneable {
 		commit();
 		log.info(DUtil.format("finish_session", session_id));
 		session_id = -1L;
+		shutdown();
 	}
 
 	public void closedb() throws SQLException {
@@ -462,7 +465,7 @@ public class Diffo implements IDiffo, Cloneable {
 	public boolean refreshSWCV(PiHost p) 
 		throws IOException, ParseException, SQLException, SAXException 
 		{ 
-		ArrayList<SWCV> as = p.askSwcvSeparated(); 
+		ArrayList<SWCV> as = p.askSwcv(); 
 		boolean ok = true; 
 		assert as != null : "SWCV extraction problem"; 
 		PreparedStatement ps = prepareStatement("sql_swcvdef_getone");
@@ -589,15 +592,46 @@ public class Diffo implements IDiffo, Cloneable {
 				p.getEntity(r, "ariscxnocc"),
 				p.getEntity(r, "arisobjocc"),
 				p.getEntity(r, "aristextocc"),
+
 //				p.getEntity(r, ""),
 //				p.getEntity(r, ""),
 			};
-		for (PiEntity e: reps) {
+		final PiHost p2 = p;
+		List<Thread> workers = new LinkedList<Thread>(), 
+				queue = new LinkedList<Thread>();
+		for (final PiEntity e: reps) {
 			if (e!=null) {
-				handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
+				Thread w = new Thread(new Runnable(){
+//					boolean done = false;
+					public void run() {
+						try {
+							handleIndexRepositoryObjectsVersions(p2.askIndex(e), p2, e);
+						} catch (SQLException e) {
+							e.printStackTrace();
+						} catch (IOException e) {
+							e.printStackTrace();
+						} catch (SAXException e) {
+							e.printStackTrace();
+						}
+//						done = true;
+					}
+				});
+				workers.add(w);
 			} else
 				log.severe("Entity is null!");
 		}
+		int i=0, mx=2, k, a;
+		boolean b = true;
+		while (workers.size()!=0 || queue.size()!=0) {
+			if (workers.size()>0 && queue.size()<mx) {
+				Thread w = workers.remove(0);
+				w.start();
+				queue.add(w);
+			}
+			for (Thread w: queue) if (!w.isAlive()) queue.remove(w);
+			Thread.yield();
+		}
+
 	}
 	
 	public void askIndexDirectory(PiHost p) throws SQLException, IOException, SAXException {
@@ -735,6 +769,33 @@ public class Diffo implements IDiffo, Cloneable {
 		}
 		rs.close();
 	}
+	
+	private void fill_tmp8(ArrayList<PiObject> a, PiHost p, PiEntity e) throws SQLException {
+		PreparedStatement
+				del = prepareStatement("sql_tmp8_del", e.entity_id)
+				, ins = prepareStatement("sql_tmp8_ins")
+				, sel=prepareStatement("sql_tmp8_idx", e.entity_id);
+		DUtil.executeUpdate(del,true);
+		assert a!=null;
+		int i=0;
+		for (PiObject o: a) {
+			Object []x = o.extrSwcvSp();
+			// (entity_id,oid,vid,swcv,sp,del,host_id)
+			DUtil.setStatementParams(ins,e.entity_id,o.objectid, o.versionid, x[0], x[1], o.deleted?1:0, p.host_id, i++);
+			ins.addBatch();
+		}
+		DUtil.executeBatch(ins, true);
+		ResultSet rs = sel.executeQuery();
+		i = 0;
+		while (rs.next()) {
+			a.get(i).refSWCV = rs.getLong(1);
+			assert a.get(i).refSWCV!=0;
+			assert i==rs.getLong(2);
+			i++;
+		}
+		rs.close();
+		// Здесь должно остаться содержимое в tmp8 со ссылками на объекты
+	}
 
 	private void handleIndexRepositoryObjectsVersions(ArrayList<PiObject> objs, PiHost p, PiEntity e)
 	throws SQLException {
@@ -749,9 +810,9 @@ public class Diffo implements IDiffo, Cloneable {
 		boolean ignore_sap_deleted = true;	// true для игнорирования
 		boolean ignore_sap_alive = true;   // true для игнорирования
 		
-		// Вставить гуиды, полученные онлайн, в tmp7 И УЗНАТЬ ССЫЛКИ REF
-		fill_tmp7(objs, p);
-		
+		// Вставить гуиды, полученные онлайн, в tmp8 И УЗНАТЬ ССЫЛКИ REF
+		fill_tmp8(objs, p, e);
+
 		// делаем искалку
 		HashMap<ByteBuffer,ArrayList<PiObject>> hm = new HashMap<ByteBuffer,ArrayList<PiObject>>(objs.size());
 		for (PiObject o: objs) {
@@ -807,11 +868,13 @@ public class Diffo implements IDiffo, Cloneable {
 //					zip = o.deleted? null: p.readHttpConnection(p.establishGET(new URL(o.rawref), true));
 					if (log.isLoggable(Level.FINE))
 						log.fine("before sql_objrep_ins for " + o.rawref );
-					i = DUtil.setStatementParams(ins,p.host_id,session_id,o.refSWCV,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0).executeUpdate();
+					DUtil.setStatementParams(ins,p.host_id,session_id,o.refSWCV,o.objectid,o.e.entity_id,o.rawref,o.deleted?1:0);
+					i = DUtil.executeUpdate(ins, true);
 					assert i==1: "insertion REP object failed, rows affected:"+i;
 					o.refDB = ins.getGeneratedKeys().getLong(1);
 					assert o.refDB!=0 : "bad object_ref:" + o.refDB;
-					i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, o.deleted?0:1).executeUpdate();
+					DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, o.deleted?0:1);
+					i = DUtil.executeUpdate(insV, true);
 					assert i==1: "insertion REP version failed, rows affected:"+i;
 					if (!o.deleted) {
 						if (log.isLoggable(Level.FINE))
@@ -824,19 +887,23 @@ public class Diffo implements IDiffo, Cloneable {
 				// появилась новая версия объекта. 
 //				zip = DUtil.readHttpConnection(p.establishGET(new URL(o.rawref),true));
 				// Деактивируем старую версию, сессия не меняется
-				i = DUtil.setStatementParams(deactV,oref).executeUpdate();
+				DUtil.setStatementParams(deactV,oref);
+				i = DUtil.executeUpdate(deactV, true);
 				assert i==1 : "deactivate failed, rows updated:"+i;
 				// добавляем новую активную версию
-				i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1).executeUpdate();
+				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 1);
+				i = DUtil.executeUpdate(insV, true);
 				assert i==1 : "insert version touched rows: " + i;
 				p.addObject(o, session_id, true);
 			} else if (txt.equals("NEWVER_DEAD")) {
 				assert !swcv.is_sap();
 				o.refDB = oref;
 				// появилась новая версия объекта и она удалена.
-				i = DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 0, null).executeUpdate();
+				DUtil.setStatementParams(insV, o.refDB, o.versionid, session_id, 0, null);
+				i = DUtil.executeUpdate(insV, true);
 				assert i==1 : "insert version touched rows: " + i;
-				i = DUtil.setStatementParams(del, o.refDB, session_id).executeUpdate();
+				DUtil.setStatementParams(del, o.refDB, session_id);
+				i = DUtil.executeUpdate(del, true);
 				assert i==1 : "update failed, rows:" + i;
 			} else {
 				i = 0/0;
@@ -846,11 +913,11 @@ public class Diffo implements IDiffo, Cloneable {
 		for (PiObject o: objs) if (o.refDB<1){
 			i++;
 		}
-		assert i==0: i+" objects are not handled; all amount is " + objs.size() + "; db rolled back:" + rollback();
+		if (i!=0) {
+			assert i==0: i+" objects are not handled; all amount is " + objs.size();
+		}
 		log.fine("before p.addObjectCommit");
 		p.addObjectCommit(true);
-		log.fine("before diffo commit");
-		commit();
 		log.fine("after diffo commit");
 		assert validatedb();
 	}
@@ -992,6 +1059,8 @@ public class Diffo implements IDiffo, Cloneable {
 		return hm;
 	}
 	void shutdown() {
+		log.info(DUtil.format("shutdown_prepare"));
 		HUtil.shutdown();
+		log.info(DUtil.format("shutdown"));
 	}
 }
