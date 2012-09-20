@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry excluding=".classpath|.project|MANIFEST.MF|diffo.bat|diffo.jar|doc/|lib/|makejar.bat|saplib/" kind="src" path=""/>
+	<classpathentry excluding=".classpath|.project|MANIFEST.MF|db/|diffo.bat|diffo.jar|doc/|lib/|makejar.bat|saplib/" kind="src" path=""/>
 	<classpathentry kind="con" path="sap.wsconsumer"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="lib" path="saplib/sap.com~tc~sld~lcrclient_lib.jar"/>
@@ -8,5 +8,6 @@
 	<classpathentry kind="lib" path="saplib/sap.com~tc~sld~sldclient_lib.jar"/>
 	<classpathentry kind="lib" path="lib/tagsoup-1.2.1.jar"/>
 	<classpathentry kind="lib" path="lib/commons-cli-1.2.jar"/>
+	<classpathentry kind="lib" path="lib/httpclient-4.2.1.jar"/>
 	<classpathentry kind="output" path=""/>
 </classpath>

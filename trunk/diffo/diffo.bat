@@ -2,7 +2,7 @@
 set hd=-XX:+HeapDumpOnOutOfMemoryError -XX:+UseCompressedOops
 
 rem agent is JMX / profiling tool
-set agent=-agentpath:"C:\Program Files (x86)\YourKit Java Profiler 11.0.7\bin\win64\yjpagent.dll"
+rem set agent=-agentpath:"C:\Program Files (x86)\YourKit Java Profiler 11.0.7\bin\win64\yjpagent.dll"
 
 rem with SAX
 set lib=./lib/sqlite-jdbc-3.7.2.jar;./lib/tagsoup-1.2.1.jar;./lib/commons-cli-1.2.jar

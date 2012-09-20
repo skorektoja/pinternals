@@ -31,6 +31,7 @@ public class Diffo implements IDiffo, Cloneable {
 	private ArrayList<PiHost> pihosts = new ArrayList<PiHost>(10);
 	private Connection conn = null;
 	private File dbfile = null;
+	private HUtil hutil = new HUtil(10);
 
 	public Long session_id = -1L;
 	public Proxy proxy;
@@ -414,7 +415,7 @@ public class Diffo implements IDiffo, Cloneable {
 				x.attrs.add(new ResultAttribute(rsa.getString(1), rsa.getString(2), rsa.getInt(3)));
 			db.add(x);
 		}
-		if (forceonline || db.isEmpty()) online = p.collectDocsRA(side);
+		if (forceonline || db.isEmpty()) online = p.collectDocsRA(side, 2);
 		for (PiEntity x: online) {
 			q = db.indexOf(x);
 			if (q == -1) {
@@ -450,7 +451,7 @@ public class Diffo implements IDiffo, Cloneable {
 
 
 	/**
-	 * Новая индексировалка SWCV. В отличии от refreshSWCV
+	 * Новый индекс SWCV
 	 * @param p
 	 * @return
 	 * @throws IOException
@@ -592,9 +593,9 @@ public class Diffo implements IDiffo, Cloneable {
 //				p.getEntity(r, ""),
 			};
 		for (PiEntity e: reps) {
-			if (e!=null)
+			if (e!=null) {
 				handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
-			else
+			} else
 				log.severe("Entity is null!");
 		}
 	}
@@ -618,8 +619,9 @@ public class Diffo implements IDiffo, Cloneable {
 //				p.getEntity(d, ""),
 //				p.getEntity(d, ""),
 		};
-		for (PiEntity e: dirs)
+		for (PiEntity e: dirs) {
 			handleIndexDirectoryObjectsVersions(p.askIndex(e), p, e);
+		}
 	}
 
 	private void fill_tmp3(ArrayList<PiObject> a) throws SQLException {
@@ -890,14 +892,16 @@ public class Diffo implements IDiffo, Cloneable {
 	throws SQLException, IOException, SAXException, ParseException {
 		boolean b = true;
 		int i = 10;
-		p.download(false);
+//		p.download(false);
 //		while (!p.download(false) && --i > 0) ;
 //		if (true) return;
 
 		if (b && p.isSideAvailable(Side.Repository)) {
 			refreshMeta(p,Side.Repository);
 			refreshSWCV(p);
-			if ((p.swcv.size()>0)) askIndexRepository(p);
+			if ((p.swcv.size()>0)) {
+				askIndexRepository(p);
+			}
 		}
 		if (b && p.isSideAvailable(Side.Directory)) {
 			refreshMeta(p, Side.Directory);
@@ -907,7 +911,6 @@ public class Diffo implements IDiffo, Cloneable {
 			refreshMeta(p, Side.SLD);
 			askSld(p);
 		}
-		p.download(true);
 	}
 
 	public ArrayList<DiffItem> list (PiHost p, PiEntity el) throws SQLException, IOException {
@@ -987,5 +990,8 @@ public class Diffo implements IDiffo, Cloneable {
 		}
 		ps.close();
 		return hm;
+	}
+	void shutdown() {
+		HUtil.shutdown();
 	}
 }
