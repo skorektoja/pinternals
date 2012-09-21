@@ -313,6 +313,13 @@ public class Main {
 					}
 					d.askIndexDirectory(pih);
 					d.tickIndexRequestQueue(true);
+				} else if ("payloads".equals(a0)) {
+					if (!started) continue;
+					if (pih==null) {
+						pih = d.addPiHost(sid, xihost);
+						pih.setUserCredentials(uname, passwd);
+					}
+					pih.download();
 				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
 					if (!started) continue;
 					if (pih==null) {
@@ -345,7 +352,7 @@ public class Main {
 				} else if ("migrateMainDB".equals(a0)) {
 					d.migrateMainDB("newMainDB.tmp");
 				} else
-					System.err.println("Unknown command: " + a0);
+					System.err.println("\n\n!!!! Unknown command: " + a0 + "\n\n");
 			}
 			if (started) {
 				d.finish_session();

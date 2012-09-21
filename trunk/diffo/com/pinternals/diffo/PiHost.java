@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.GZIPOutputStream;
@@ -41,14 +43,14 @@ public class PiHost implements Runnable {
 //	private Diffo diffo = null;
 	protected Connection hostdb = null;
 	String hostdbfn = null; 
-	protected PreparedStatement psNewOV = null, psGP = null; 
+	private PreparedStatement psInboxIns=null, psInboxDel=null, psGP = null; 
+	private static final Lock lock = new ReentrantLock();
 
 	public URL uroot;
 	private URL ucpahtml, uaf_schxml;
 	private CPACache cpacache = null;
 	private int timeoutMillis=30000;
 	private Proxy proxy = null;
-	private int dirtycnt = 0;
 
 	public HashMap<String,PiEntity> entities = new HashMap<String,PiEntity>(20);
 //	public boolean ime_sapcom = false, ime_customer = false;
@@ -66,7 +68,6 @@ public class PiHost implements Runnable {
 		this.host_id = host_id;
 		this.hostdb = hostdb;
 		this.hostdbfn = "";
-		psNewOV = DUtil.prepareStatement(hostdb, "hosql_insOV_dirty");
 		psGP = DUtil.prepareStatement(hostdb, "hosql_getpayload");
 		timeoutMillis=30000;
 		log.config("TODO: add config for PiHost"); //TODO
@@ -423,7 +424,10 @@ public class PiHost implements Runnable {
 	public void addObject(PiObject o, long session_id) throws SQLException {
 		// TODO: написать тексты для ассертов
 		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
-		assert psNewOV != null;
+		if (psInboxDel==null) psInboxDel = DUtil.prepareStatement(hostdb, "hosql_inbox_del");
+		if (psInboxIns==null) psInboxIns = DUtil.prepareStatement(hostdb, "hosql_inbox_ins");
+		
+		
 //		hosql_insOV_dirty=INSERT INTO inbox (object_ref,object_id,version_id,session_id,url) \
 //	    VALUES (?1,?2,?3,?4,?5);
 		assert o!=null;
@@ -433,12 +437,31 @@ public class PiHost implements Runnable {
 		assert o.versionid!=null;
 		assert o.rawref!=null;
 		assert !o.deleted : "tried to add deleted object " + o;
-		DUtil.setStatementParams(psNewOV, o.refDB, o.objectid, o.versionid, session_id, o.rawref);
-		if (log.isLoggable(Level.FINE))
-			log.fine("before psNewOV for oid/vid " + UUtil.getStringUUIDfromBytes(o.objectid) + "/" + UUtil.getStringUUIDfromBytes(o.versionid));
-		psNewOV.addBatch();
+		DUtil.setStatementParams(psInboxIns, o.refDB, o.objectid, o.versionid, session_id, o.rawref);
+		DUtil.setStatementParams(psInboxDel, o.objectid, o.versionid);
+		psInboxDel.addBatch();
+		psInboxIns.addBatch();
 	}
-
+	
+	public void commitObject() throws SQLException {
+		lock.lock();
+		try {
+			if (psInboxDel!=null) psInboxDel.executeBatch();
+			if (psInboxIns!=null) psInboxIns.executeBatch();
+			hostdb.commit();
+        } finally {
+            lock.unlock();
+        }
+	}
+	public void executeUpdate(boolean commit, PreparedStatement ... ps) throws SQLException {
+		lock.lock();
+		try {
+			for (PreparedStatement p: ps) p.executeUpdate();
+			if (commit) hostdb.commit();
+        } finally {
+            lock.unlock();
+        }
+	}
 //	int threadcount = 0;
 //	ArrayList<PayloadFetcher> alPF = null;
 //
@@ -501,17 +524,56 @@ public class PiHost implements Runnable {
 //		}
 //	}
 
-	protected boolean download() throws SQLException {
+	protected boolean download() throws SQLException, MalformedURLException, IOException {
 		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
+		//hosql_inbox_unk=SELECT inbox_id,url,dlcount FROM inbox;
+		//hosql_inbox_unks=SELECT object_ref,object_id,version_id,session_id,url,dlcount FROM inbox WHERE inbox_id=?1;
+		//hosql_objlink_ins=INSERT INTO objlink (object_ref,object_id,version_id,session_id,url,bloz)
+		PreparedStatement psUnk = DUtil.prepareStatement(hostdb, "hosql_inbox_unk")
+				, psUnks = DUtil.prepareStatement(hostdb, "hosql_inbox_unks")
+				, psUnkd = DUtil.prepareStatement(hostdb, "hosql_inbox_unkd")
+				, psOLP = DUtil.prepareStatement(hostdb, "hosql_objlink_ins")
+				;
+		ResultSet rs = psUnk.executeQuery();
+		HashMap<Integer,Long> hm = new HashMap<Integer,Long>(100);
+		int la;
+		long inbox_id;
+		while (rs.next()) {
+			inbox_id = rs.getLong(1); //, dlcount = rs.getLong(3);
+			String url = rs.getString(2);
+			System.out.println(url);
+			la = HUtil.addGet(establishGET(new URL(url), true));
+			hm.put(la, inbox_id);
+		}
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(500000);
+		GZIPOutputStream z;
 		
-		PreparedStatement psPut = DUtil.prepareStatement(hostdb, "hosql_undirty")
-				,psInc = DUtil.prepareStatement(hostdb, "hosql_incdirty") ;
-		assert psPut != null : "host DB error when prepare update clause";
-		ResultSet rs = DUtil.prepareStatement(hostdb, "hosql_getdirty").executeQuery();
-		int q=0, errors=0, ok=0, nonretr=0;
-		
-
-		return q==0 || errors==0;
+		while (hm.size()>0) for (Integer x: hm.keySet()) if (HUtil.isDone(x)) {
+			inbox_id = hm.get(x);
+			ByteArrayInputStream bis = HUtil.getBAIS(x);
+			baos.reset();
+			z = new GZIPOutputStream(baos);
+			int i = bis.read();
+			while (i!=-1) {
+				z.write(i);
+				i = bis.read();
+			}
+			z.finish();
+			z.flush();
+			rs = DUtil.setStatementParams(psUnks, inbox_id).executeQuery();
+			if (rs.next()) {
+				DUtil.setStatementParams(psOLP,rs.getLong(1),rs.getBytes(2),rs.getBytes(3),rs.getLong(4),rs.getString(5),baos.toByteArray());
+				i = psOLP.executeUpdate();
+				assert i==1;
+				DUtil.setStatementParams(psUnkd, inbox_id);
+				executeUpdate(true, psUnkd);
+			} else {
+				int j = 0/0; 
+			}
+			hm.remove(x);
+			break;
+		}
+		return true;
 	}
 
 	protected ResultSet getPayload(long ref, byte[] version_id) throws SQLException {

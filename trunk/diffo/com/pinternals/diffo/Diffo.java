@@ -736,7 +736,7 @@ public class Diffo implements IDiffo, Cloneable {
 				if (!o.deleted) p.addObject(o, session_id);
 			}
 		}
-		DUtil.executeBatch(p.psNewOV, true);
+		p.commitObject();
 		i = 0;
 		for (PiObject o: objs) if (o.refDB<1){
 			i++;
@@ -898,7 +898,7 @@ public class Diffo implements IDiffo, Cloneable {
 		if (i!=0) {
 			assert i==0: i+" objects are not handled; all amount is " + objs.size();
 		}
-		DUtil.executeBatch(p.psNewOV, true);
+		p.commitObject();
 	}
 
 	public void askSld(PiHost p) throws IOException, SAXException {
