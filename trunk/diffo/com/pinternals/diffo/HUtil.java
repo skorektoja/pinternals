@@ -60,7 +60,7 @@ public class HUtil implements Runnable {
 		Thread t = new Thread(h);
 		t.setName(h.name);
 		incoming.add(t);
-		if (log.isLoggable(Level.FINEST)) log.config("HUtil.addHTask for new task name=" + h.name + "URL:" + h.hc.getURL().toExternalForm());
+		if (log.isLoggable(Level.FINEST)) log.config("HUtil.addHTask for new task name=" + h.name + " URL:" + h.hc.getURL().toExternalForm());
 		return t;
 	}
 }
@@ -81,11 +81,13 @@ class HTask implements Runnable {
 		this.name = name;
 		method = "GET";
 		post = null;
+		assert hc.getRequestMethod().equals(method) : "method mismatch";
 		this.hc = hc;
 	}
 	HTask (String name, HttpURLConnection hc, String post) {
 		this.name = name;
 		method = "POST";
+		assert hc.getRequestMethod().equals(method) : "method mismatch";
 		this.post = post;
 		this.hc = hc;
 	}
@@ -125,7 +127,7 @@ class HTask implements Runnable {
 		if (ok) {
 			if (log.isLoggable(Level.FINE))
 				log.fine("HTask.run( " + this.hashCode() + " ) ok");
-			a = new ByteArrayOutputStream(hc.getContentLength());
+			a = new ByteArrayOutputStream(hc.getContentLength() < 100 ? 100000 : hc.getContentLength());
 			try {
 				int i = hc.getInputStream().read();
 				while (i!=-1) {

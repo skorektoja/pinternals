@@ -26,7 +26,9 @@ public enum Side  {
 		switch (this) {
 		case Directory: 	return C_DIRSUF; //"/dir/start/index.jsp";
 		case Repository:	return C_REPSUF; //"/rep/start/index.jsp";
-		case SLD:			return "/sld/cimom";
+		case SLD:			
+			//return "/sld/cimom" // not good for pi.esworkplace
+			return "/webdynpro/dispatcher/sap.com/tc~sld~wd~main/Main";
 		default:
 			throw new RuntimeException("for side: " + this + " there is no defurl");
 		}

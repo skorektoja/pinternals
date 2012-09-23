@@ -15,6 +15,7 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.Lock;
@@ -179,6 +180,7 @@ public class PiHost implements Runnable {
 	protected void addEntity(PiEntity e) {
 		assert e.side!=null && e.intname!=null && !e.intname.isEmpty() : "tried to add invalid entity";
 		entities.put(e.side.txt()+"|"+e.intname, e);
+		log.config("configured entity " + e.side + "|" + e.intname);
 	}
 	public PiEntity getEntity(Side side, String intname) {
 		return entities.get(side.txt()+"|"+intname);
@@ -225,10 +227,7 @@ public class PiHost implements Runnable {
 			u = side.url(uroot);
 			HttpURLConnection h = establishGET(u, true);
 			h.connect();
-			if (h.getResponseCode()!=HttpURLConnection.HTTP_OK)
-				return false;
-			else
-				return true;
+			return (h.getResponseCode()==HttpURLConnection.HTTP_OK);
 		} catch (Exception e) { 
 			log.log(Level.SEVERE, "HTTP access error to " + u + " side " + side, e);
 		}
@@ -264,7 +263,7 @@ public class PiHost implements Runnable {
 		return rez;
 	} */
 	
-	public ArrayList<SWCV> askSwcv() throws IOException, SAXException, ParseException {
+	public ArrayList<SWCV> askSwcv() throws IOException, SAXException, ParseException, InterruptedException {
 		PiEntity e = getEntity(Side.Repository, "workspace");
 		assert e != null: "SWCV not found in entities";
 		String sDef, sDep;
@@ -273,27 +272,29 @@ public class PiHost implements Runnable {
 		// dependencies
 		sDep="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=DEPTYPE&result=WS_ID&result=DEPWS_ID&result=DEPWS_NAME&result=WS_ORDER&result=SEQNO&result=DEVLINE&action=Start+query";
 
-		//TODO: переписать на HUtil
+		HTask h = new HTask("SWCVdef", establishPOST(Side.Repository.url(uroot), true), sDef);
+		Thread t = HUtil.addHTask(h);
 		
-		// whole template
-		HttpURLConnection h = establishPOST(Side.Repository.url(uroot), true);
-		DUtil.putPOST(h, sDef);
-		h.connect();
-		ArrayList<PiObject> tmp = e.parse_index(h.getInputStream(),false), tmp2;
-		h.disconnect();
-		if (tmp.size()==0) {
-			log.warning(DUtil.format("swcv_retr_failure", sid));
-			return null;
-		}
-		// get dependencies
-		h = establishPOST(Side.Repository.url(uroot), true);
-		DUtil.putPOST(h, sDep);
-		h.connect();
-		tmp2 = e.parse_index(h.getInputStream(),false);
-		h.disconnect();
-		if (tmp2.size()==0) {
-			log.warning(DUtil.format("swcv_retr_failure", sid));
-			return null;
+		HTask hd = new HTask("SWCVdep", establishPOST(Side.Repository.url(uroot), true), sDep);
+		Thread td = HUtil.addHTask(hd);
+		
+		HUtil.join(t);
+		List<PiObject> tmp = new ArrayList<PiObject>(0), tmp2 = new ArrayList<PiObject>(0);
+		if (h.ok) {
+			tmp = e.parse_index(h.bis, false);
+			if (tmp.size()==0) {
+				log.warning(DUtil.format("swcv_retr_failure", sid));
+				return null;
+			}
+			// get dependencies
+			HUtil.join(td);
+			if (hd.ok) {
+				tmp2 = e.parse_index(hd.bis,false);
+				if (tmp2.size()==0) {
+					log.warning(DUtil.format("swcv_retr_failure", sid));
+					return null;
+				}
+			}
 		}
 		log.config("There is " + tmp.size() + " swcv and " + tmp2.size() + " dependencies");
 		ArrayList<SWCV> rez = new ArrayList<SWCV>(tmp.size()); 
