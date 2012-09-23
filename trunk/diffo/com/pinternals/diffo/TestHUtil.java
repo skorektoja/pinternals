@@ -9,13 +9,13 @@ public class TestHUtil {
 			HUtil hu = new HUtil(10);
 			URL u = new URL("http://www.omk.ru");
 			HttpURLConnection h = DUtil.getHttpConnection(null, u, 1000);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
-			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
+//			HUtil.addGet(h);
 			HUtil.shutdown();
 		} catch (Exception e) {
 			e.printStackTrace();
