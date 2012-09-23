@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry excluding=".classpath|.project|MANIFEST.MF|db/|diffo.bat|diffo.jar|doc/|lib/|makejar.bat|saplib/" kind="src" path=""/>
+	<classpathentry excluding="*.db|*.log|.classpath|.project|MANIFEST.MF|db/|diffo.bat|diffo.jar|doc/|lib/|makejar.bat|saplib/" kind="src" path=""/>
 	<classpathentry kind="con" path="sap.wsconsumer"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="lib" path="saplib/sap.com~tc~sld~lcrclient_lib.jar"/>

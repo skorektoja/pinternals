@@ -72,7 +72,7 @@ public class Diffo implements IDiffo, Cloneable {
 	 * @return sql statement
 	 * @throws SQLException
 	 */
-	private PreparedStatement prepareStatement(String key, Object... objs)
+	protected PreparedStatement prepareStatement(String key, Object... objs)
 			throws SQLException {
 		if (session_id==-1L || session_id==0) {
 			assert false : "session must be opened";
@@ -396,33 +396,66 @@ public class Diffo implements IDiffo, Cloneable {
 	 * " not updated"; return i == 1; }
 	 * 
 	 */ 
-	public void refreshMeta(PiHost p) throws SQLException, IOException, SAXException {
-		refreshMeta(p, Side.Repository);
-		refreshMeta(p, Side.Directory);
-		refreshMeta(p, Side.SLD);
+	public void refreshMeta(PiHost p) throws SQLException, IOException, SAXException, InterruptedException {
+		boolean force = false;
+
+		ArrayList<PiEntity> db, online;
+		List<PiEntity> mrgd = new LinkedList<PiEntity>();
+		db = getMetaDB(p, Side.Repository);
+		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Repository)) {
+			online = getMetaOnline(p, Side.Repository);
+			mergeMeta(db, online);
+		}
+		mrgd.addAll(db);
+		
+		db = getMetaDB(p, Side.Directory);
+		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Directory)) {
+			online = getMetaOnline(p, Side.Directory);
+			mergeMeta(db, online);
+		}
+		mrgd.addAll(db);
+
+		db = getMetaDB(p, Side.SLD);
+		if ((db.isEmpty() || force) && p.isSideAvailable(Side.SLD)) {
+			online = getMetaOnline(p, Side.SLD);
+			mergeMeta(db, online);
+		}
+		for (PiEntity e: mrgd) 
+			p.entities.put(e.intname, e);
 	}
 
-	public void refreshMeta(PiHost p, Side side) throws SQLException, IOException, SAXException {
-		boolean forceonline = false;
-		
-		PreparedStatement inse = prepareStatement("sql_entities_ins")
-			, insa = prepareStatement("sql_ra_ins")
-			, psa = prepareStatement("sql_ra_getone")
-			, eg = prepareStatement("sql_entities_getside", p.host_id, side.txt()); 
+	public ArrayList<PiEntity> getMetaDB(PiHost p, Side side) throws SQLException {
+		assert p!=null && side!=null;
+		PreparedStatement psa = prepareStatement("sql_ra_getone")
+			, eg = prepareStatement("sql_entities_getside", p.host_id, side.txt());
 		ResultSet rs = eg.executeQuery(), rsa;
-		int i, q, c=0;
-		ArrayList<PiEntity> db = new ArrayList<PiEntity>(100), online = new ArrayList<PiEntity>(0);
-
-		// Из БД берём ВСЁ
+		ArrayList<PiEntity> db = new ArrayList<PiEntity>(0);
 		while (rs.next()) {
-			PiEntity x = new PiEntity(rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4));
+			PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4));
 			rsa = DUtil.setStatementParams(psa, x.entity_id).executeQuery();
 			while (rsa.next())
 				x.attrs.add(new ResultAttribute(rsa.getString(1), rsa.getString(2), rsa.getInt(3)));
 			db.add(x);
 		}
-		if (forceonline || db.isEmpty()) online = p.collectDocsRA(side);
+		return db;
+	}
+	public ArrayList<PiEntity> getMetaOnline(PiHost p, Side side) throws IOException, SAXException, InterruptedException {
+		ArrayList<PiEntity> online = p.collectDocsRA(side);
+		assert online!=null;
+		boolean b = false;
+		while (!b) {
+			b = true;
+			for (PiEntity o: online)
+				b = b && o.ok;
+		}
+		return online;
+	}
+	public void mergeMeta(ArrayList<PiEntity> db, ArrayList<PiEntity> online) throws SQLException {
+		PreparedStatement inse = prepareStatement("sql_entities_ins")
+				, insa = prepareStatement("sql_ra_ins");
+		int i, q;
 		for (PiEntity x: online) {
+			PiHost p = x.host;
 			q = db.indexOf(x);
 			if (q == -1) {
 				// Есть онлайн, нету в БД => добавляем
@@ -439,7 +472,6 @@ public class Diffo implements IDiffo, Cloneable {
 					insa.addBatch();
 				}
 				insa.executeBatch();
-				c++;
 				p.addEntity(x);
 			} else {
 				assert x.attrs.size()==db.get(q).attrs.size();
@@ -447,11 +479,6 @@ public class Diffo implements IDiffo, Cloneable {
 				db.remove(q);
 			}
 		}
-		for (PiEntity x: db) 
-			p.addEntity(x);   // в online нет (пропало?) или не запрашивалось (forceonline=false) 
-		
-		commit();
-		assert !forceonline || db.isEmpty() : "there are " + db.size() + " entities unknown: " + side + " at " + p.sid;
 	}
 
 
@@ -935,22 +962,19 @@ public class Diffo implements IDiffo, Cloneable {
 	}
 	
 	public void fullFarsch(PiHost p) 
-	throws SQLException, IOException, SAXException, ParseException {
+	throws SQLException, IOException, SAXException, ParseException, InterruptedException {
 		boolean b = true;
-
-		if (b && p.isSideAvailable(Side.Repository)) {
-			refreshMeta(p,Side.Repository);
+		refreshMeta(p);
+		if (p.isSideAvailable(Side.Repository)) {
 			refreshSWCV(p);
 			if ((p.swcv.size()>0)) 
 				askIndexRepository(p);
 		}
-		if (b && p.isSideAvailable(Side.Directory)) {
-			refreshMeta(p, Side.Directory);
+		if (p.isSideAvailable(Side.Directory)) {
 			askIndexDirectory(p);
 		}
 		tickIndexRequestQueue(true);
-		if (b && p.isSideAvailable(Side.SLD)) {
-			refreshMeta(p, Side.SLD);
+		if (p.isSideAvailable(Side.SLD)) {
 			askSld(p);
 		}
 	}
@@ -974,19 +998,18 @@ public class Diffo implements IDiffo, Cloneable {
 		return al;
 	}
 
-	public ArrayList<DiffItem> list (PiHost p, Side side, String entname) throws SQLException, IOException, SAXException {
+	public ArrayList<DiffItem> list (PiHost p, Side side, String entname) throws SQLException, IOException, SAXException, InterruptedException {
 		assert p!=null && p.host_id!=0 : "PiHost isn't initialized";
 		if (p.entities == null || p.entities.size()==0) {
-			refreshMeta(p, Side.Repository);
-			refreshMeta(p, Side.Directory);
-			refreshMeta(p, Side.SLD);
+			refreshMeta(p);
 		}
 		return list(p, p.getEntity(side, entname));
 	}
 	
 	@Override
 	public boolean refresh(String sid, String url, String user, String password)
-	throws MalformedURLException, SQLException, IOException, SAXException, ParseException {
+	throws MalformedURLException, SQLException, IOException, SAXException, ParseException, InterruptedException
+	 {
 		PiHost p = addPiHost(sid, url);
 		p.setUserCredentials(user, password);
 		fullFarsch(p);

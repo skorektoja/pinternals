@@ -1,8 +1,10 @@
 package com.pinternals.diffo;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.net.MalformedURLException;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.sql.PreparedStatement;
@@ -225,7 +227,7 @@ class ResultAttribute {
 	}
 }
 
-public class PiEntity {
+public class PiEntity implements HTaskListener {
 	public static String SWCV = "workspace", FOLDER="FOLDER";
 
 	public String intname, title;
@@ -233,13 +235,41 @@ public class PiEntity {
 	public int seqno;
 	public Side side = null;
 	public ArrayList<ResultAttribute> attrs = new ArrayList<ResultAttribute>(20);
+	public boolean ok = false;
+	protected PiHost host = null;
 	
-	public PiEntity (long entity_id, Side side, String intname, String title, int seqno) {
+	protected PiEntity (PiHost p, long entity_id, Side side, String intname, String title, int seqno) {
 		this.intname = intname;
 		this.title = title;
 		this.side = side;
 		this.seqno = seqno;
 		this.entity_id = entity_id;
+		this.host = p;
+	}
+
+	public void finished(HTask h) {
+		SQEntityAttr sq;
+		if (h.ok) {
+			try {
+				sq = PiEntity.parse_ra(h.bis, "result");
+				for (int j=0; j<sq.size; j++)
+					this.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
+				ok = true;
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		} else {
+			h.setListener(this);
+			HUtil.addHTask(h);
+		}
+	}
+	
+	protected void collectRA(PiHost p) throws MalformedURLException, IOException {
+		HTask h = new HTask("CollectRA("+intname+")", 
+				p.establishPOST(side.url(p.uroot), true), 
+				side.createQueryResultAttributes(intname) );
+		h.setListener(this);
+		HUtil.addHTask(h);
 	}
 	@Override
 	public boolean equals(Object o) {
@@ -247,17 +277,10 @@ public class PiEntity {
 		return side==e.side && intname.equals(e.intname);
 	}
 
-	public String getQueryPrepareParse() {
+	private String getQueryPrepareParse1222222222222222() {
 		String s = "";
 		if (side==Side.Repository && intname.equals(SWCV)) {
 			assert false: "This code is not for use already";
-			int i = 0 / 0;
-			// убрано отсюда, но не закомментарено -- чтобы видеть старый код, который это вызовет
-			// TODO: refactoring is needed
-//			// нужен полный фарш для SWCV, поскольку у них нет ссылки [R]
-//			for (ResultAttribute ra: attrs) {
-//				s = s + "&result=" + ra.internal;
-//			}
 		} else { // достаточно всего трёх таблеток! главное, не ударяться в истерику.
 			s =  "result=RA_XILINK&result=OBJECTID&result=VERSIONID";
 		}
@@ -430,4 +453,5 @@ public class PiEntity {
 	    }
 	    return rez;
 	}
+
 }

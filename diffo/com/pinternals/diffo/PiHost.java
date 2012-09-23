@@ -3,7 +3,6 @@ package com.pinternals.diffo;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.Proxy;
@@ -16,8 +15,8 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -40,7 +39,7 @@ public class PiHost implements Runnable {
 	private Object actobjs = null;
 	public String sid = null;
 	public Long host_id = new Long(-1);
-//	private Diffo diffo = null;
+	private Diffo diffo = null;
 	protected Connection hostdb = null;
 	String hostdbfn = null; 
 	private PreparedStatement psInboxIns=null, psInboxDel=null, psGP = null; 
@@ -60,8 +59,8 @@ public class PiHost implements Runnable {
 	public PiHost (Diffo d, String sid, String sURL, long host_id, Connection hostdb) 
 	throws MalformedURLException, SQLException {
 		this.proxy = d.proxy;
+		this.diffo = d;
 		this.sid = sid;
-//		this.diffo = d;
 		this.uroot = new URL(sURL);
 //		this.ucpahtml = new URL(sURL + Side.C_CPA_S);
 //		this.uaf_schxml = new URL(sURL + Side.C_AF_SCH_XML);
@@ -82,14 +81,14 @@ public class PiHost implements Runnable {
 		basicAuth = "Basic " + new String(new BASE64Encoder().encode(token.getBytes()));
 	}
 	// -------------------------------------- HTTP services
-	private HttpURLConnection establishPOST(URL u, boolean useCredentials) throws MalformedURLException, IOException {
+	protected HttpURLConnection establishPOST(URL u, boolean useCredentials) throws MalformedURLException, IOException {
 		HttpURLConnection huc = DUtil.getHttpConnection(proxy, u, timeoutMillis);
 		huc.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
 		huc.setRequestMethod("POST");
 		if (useCredentials) huc.setRequestProperty("Authorization", basicAuth);
 		return huc;
 	}
-	private HttpURLConnection establishGET(URL u, boolean useCredentials) 
+	protected HttpURLConnection establishGET(URL u, boolean useCredentials) 
 	throws IOException {
 		HttpURLConnection huc = DUtil.getHttpConnection(proxy, u, timeoutMillis);
 		huc.setRequestMethod("GET");
@@ -100,7 +99,8 @@ public class PiHost implements Runnable {
 	// --------------------------------------------------------- XI services
 	private boolean buildSLD (Side sld, ArrayList<PiEntity> es) {
 		int q=0;
-		PiEntity bs = new PiEntity(-1, sld, "SAP_BusinessSystem", "Business System", q++);
+		PiEntity bs = new PiEntity(this, -1, sld, "SAP_BusinessSystem", "Business System", q++);
+		bs.ok = true;
 		int r = 0;
 		bs.attrs.add(new ResultAttribute("Name", "Name", r++));
 		bs.attrs.add(new ResultAttribute("Caption", "Caption", r++));
@@ -110,7 +110,8 @@ public class PiHost implements Runnable {
 		bs.attrs.add(new ResultAttribute("SAP_GlobalUniqueID", "GUID", r++));
 		es.add(bs);
 		
-		PiEntity ag = new PiEntity(-1, sld, "SAP_BusinessSystemGuid", "SAP_BusinessSystemGuid", q++);
+		PiEntity ag = new PiEntity(this, -1, sld, "SAP_BusinessSystemGuid", "SAP_BusinessSystemGuid", q++);
+		ag.ok = true;
 		r=0;
 		ag.attrs.add(new ResultAttribute("SAP_CreationTime", "CreatedAt", r++));
 		ag.attrs.add(new ResultAttribute("SAP_LastChangedBy", "ChangedBy", r++));
@@ -119,7 +120,8 @@ public class PiHost implements Runnable {
 		ag.attrs.add(new ResultAttribute("SAP_LogicalBusinessSystem", "SAP_LogicalBusinessSystem", r++));
 		es.add(ag);
 		
-		PiEntity bsg = new PiEntity(-1, sld, "SAP_BusinessSystemGroup", "Business System Group", q++);
+		PiEntity bsg = new PiEntity(this, -1, sld, "SAP_BusinessSystemGroup", "Business System Group", q++);
+		bsg.ok = true;
 		r = 0;
 		bsg.attrs.add(new ResultAttribute("Name", "Name", r++));
 		bsg.attrs.add(new ResultAttribute("Caption", "Caption", r++));
@@ -128,7 +130,8 @@ public class PiHost implements Runnable {
 		bsg.attrs.add(new ResultAttribute("SAP_LastModificationTime", "ModifiedAt", r++));
 		es.add(bsg);
 
-		PiEntity bst = new PiEntity(-1, sld, "SAP_BusinessSystemPath", "Business System Path", q++);
+		PiEntity bst = new PiEntity(this, -1, sld, "SAP_BusinessSystemPath", "Business System Path", q++);
+		bst.ok = true;
 		r = 0;
 		bst.attrs.add(new ResultAttribute("Name", "Name", r++));
 		bst.attrs.add(new ResultAttribute("Caption", "Caption", r++));
@@ -136,6 +139,7 @@ public class PiHost implements Runnable {
 		bst.attrs.add(new ResultAttribute("SAP_LastChangedBy", "ChangedBy", r++));
 		bst.attrs.add(new ResultAttribute("SAP_LastModificationTime", "ModifiedAt", r++));
 		es.add(bst);
+		
 		return true;
 	}
 	/**
@@ -143,7 +147,7 @@ public class PiHost implements Runnable {
 	 * @param side		для какой стороны составлять индекс
 	 * @param thrcnt	число тредов
 	 */
-	protected ArrayList<PiEntity> collectDocsRA(Side side) throws IOException, SAXException {
+	protected ArrayList<PiEntity> collectDocsRA(Side side) throws IOException, InterruptedException, SAXException {
 		// всё скачать и построить карту
 		ArrayList<PiEntity> es = new ArrayList<PiEntity>(200);
 		System.err.println("collectDocsRA for " + side);
@@ -152,36 +156,25 @@ public class PiHost implements Runnable {
 			return es;
 		}
 		final URL u = side.url(uroot);
-		int f = HUtil.addGet(establishGET(u, true));
-		while (!HUtil.isDone(f)) {
-			Thread.yield();
-		}
-		ByteArrayInputStream bis = HUtil.getBAIS(f);
-		SQEntityAttr sq = PiEntity.parse_ra(bis, "types");
+		final HTask hDocs = new HTask("refreshMetaIdx", establishGET(u, true));
+		Thread t = HUtil.addHTask(hDocs);
+		HUtil.join(t);
 		
-		for (int i=0; i<sq.size; i++) {
-			es.add(new PiEntity(0,side,sq.matrix[i][0],sq.matrix[i][1],i));
-//			System.out.println(sq.matrix[i][0]);
-		}
-		
-		TreeMap<Integer, PiEntity> hmQ = new TreeMap<Integer, PiEntity>(); 
-		for (PiEntity e: es) {
-			f = HUtil.addPost(establishPOST(u, true), e.side.createQueryResultAttributes(e.intname));
-			hmQ.put(f, e);
-		}
-		while (hmQ.size()>0) {
-			f = hmQ.firstKey();
-			while (!HUtil.isDone(f)) {
-				Thread.yield();
+		if (hDocs.ok) {
+			SQEntityAttr sq = PiEntity.parse_ra(hDocs.bis, "types");
+			 
+			for (int i=0; i<sq.size; i++) {
+				PiEntity e = new PiEntity(this, 0, side, sq.matrix[i][0], sq.matrix[i][1], i); 
+				es.add(e);
+				if (log.isLoggable(Level.FINEST)) log.finest("collectDocsRA: extracted " + e.intname);
+				e.collectRA(this);
 			}
-			bis = HUtil.getBAIS(f);
-			sq = PiEntity.parse_ra(bis, "result");
-			PiEntity e = hmQ.get(f);
-			for (int j=0; j<sq.size; j++)
-				e.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
-			hmQ.remove(f);
+			return es;
+		} else {
+			new RuntimeException("Error getting hDocs");
+			log.severe("collectDocsRA failed for getting index");
+			return null;
 		}
-		return es;
 	}
 	protected void addEntity(PiEntity e) {
 		assert e.side!=null && e.intname!=null && !e.intname.isEmpty() : "tried to add invalid entity";
@@ -328,6 +321,8 @@ public class PiHost implements Runnable {
 	}
 	
 	public ArrayList<PiObject> askIndex(PiEntity e) throws IOException, SAXException {
+		return null; 
+/*		
 		assert e!=null : "Entity must be present";
 		String qdel = null, qactiv = null;
 		if (log.isLoggable(Level.CONFIG)) 
@@ -373,6 +368,7 @@ public class PiHost implements Runnable {
 		}
 		log.info(DUtil.format("sq01", e.intname, e.entity_id, ia, id));
 		return rez;
+		*/
 	}
 	private CPACache askCpaCache() throws IOException {
 		HttpURLConnection h = establishPOST(ucpahtml, true);
@@ -525,6 +521,9 @@ public class PiHost implements Runnable {
 //	}
 
 	protected boolean download() throws SQLException, MalformedURLException, IOException {
+		int zzz = 0/0;
+		
+		
 		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
 		//hosql_inbox_unk=SELECT inbox_id,url,dlcount FROM inbox;
 		//hosql_inbox_unks=SELECT object_ref,object_id,version_id,session_id,url,dlcount FROM inbox WHERE inbox_id=?1;
@@ -534,6 +533,7 @@ public class PiHost implements Runnable {
 				, psUnkd = DUtil.prepareStatement(hostdb, "hosql_inbox_unkd")
 				, psOLP = DUtil.prepareStatement(hostdb, "hosql_objlink_ins")
 				;
+		/*
 		ResultSet rs = psUnk.executeQuery();
 		HashMap<Integer,Long> hm = new HashMap<Integer,Long>(100);
 		int la;
@@ -573,6 +573,7 @@ public class PiHost implements Runnable {
 			hm.remove(x);
 			break;
 		}
+		*/
 		return true;
 	}
 

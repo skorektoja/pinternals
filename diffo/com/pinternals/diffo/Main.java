@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -18,11 +17,9 @@ import org.apache.commons.cli.PosixParser;
 import org.xml.sax.SAXException;
 
 import com.pinternals.diffo.impl.DifferencerNode;
-//import org.apache.http.auth.UsernamePasswordCredentials;
-//import org.apache.http.client.methods.HttpGet;
-//import org.apache.http.client.methods.HttpGet;
 
 public class Main {
+	@SuppressWarnings("unused")
 	private static void checkInputStream(InputStream gis) throws IOException {
 		if (gis==null) return;
 		int i = gis.read(), z=0;
@@ -89,7 +86,9 @@ public class Main {
 					System.err.println("session not started!");
 				else {
 					System.out.println("Session " + d.session_id + " started OK");
+					@SuppressWarnings("unused")
 					PiHost xid = d.addPiHost("XID", "http://somewhere:50000");
+					@SuppressWarnings("unused")
 					PiHost xiq = d.addPiHost("XIQ", "http://nowhere:50000");
 
 					boolean b = d.createdb();
@@ -141,9 +140,8 @@ public class Main {
 	}
 	
 	private static void transportCheck(Diffo d, PiHost p) 
-	throws SQLException, IOException, SAXException, ParseException {
-		d.refreshMeta(p, Side.Repository);
-		d.refreshMeta(p, Side.Directory);
+	throws SQLException, IOException, SAXException, ParseException, InterruptedException {
+		d.refreshMeta(p);
 		ArrayList<DiffItem> al;
 		al = d.list(p, Side.Repository, "XI_TRAFO");
 		al.addAll(d.list(p, Side.Repository, "MAPPING"));
@@ -186,28 +184,12 @@ public class Main {
 		opts.addOption("p", "passwd", true, "password");
 		opts.addOption(null, "tx", true, "thread indexing parallel (default is " + tx + ")");
 		opts.addOption(null, "th", true, "thread http parallel (default is " + th + ")");
-//		opts.addOption("r", "report", true, "report name");
-		opts.addOption(OptionBuilder.withLongOpt("http-proxy-host")
-					.withDescription("http proxy hostname or IP address")
-					.hasArg()
-					.withArgName("hostname")
-					.create() );
-		opts.addOption(OptionBuilder.withLongOpt("http-proxy-port")
-				.withDescription("http proxy port")
-				.hasArg()
-				.withArgName("port")
-				.create() );
-		opts.addOption(OptionBuilder.withLongOpt("http-proxy-user")
-				.withDescription("http proxy username")
-				.hasArg()
-				.withArgName("username")
-				.create() );
-		opts.addOption(OptionBuilder.withLongOpt("http-proxy-passwd")
-				.withDescription("http proxy password")
-				.hasArg()
-				.withArgName("passwd")
-				.create() );
 		
+		OptionBuilder.withLongOpt("http-proxy-host");
+		opts.addOption(null, "http-proxy-host", true, "http proxy hostname or IP address");
+		opts.addOption(null, "http-proxy-port", true, "http proxy port");
+		opts.addOption(null, "http-proxy-user", true, "user");
+		opts.addOption(null, "http-proxy-pass", true, "passwd");
 
 		CommandLine cmd = null;
 		try {
@@ -276,56 +258,24 @@ public class Main {
 					d.validatedb();
 					d.closedb();
 					started = false;
+				} else if ("addHost".equals(a0)) {
+					pih = d.addPiHost(sid, xihost);
+					pih.setUserCredentials(uname, passwd);
 				} else if ("refresh".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					d.fullFarsch(pih);
 				} else if ("refreshMeta".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					d.refreshMeta(pih);
 				} else if ("refreshSWCV".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					d.refreshSWCV(pih);
 				} else if ("askIndexRepository".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					d.askIndexRepository(pih);
 					d.tickIndexRequestQueue(true);
 				} else if ("askIndexDirectory".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					d.askIndexDirectory(pih);
 					d.tickIndexRequestQueue(true);
 				} else if ("payloads".equals(a0)) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					pih.download();
 				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
-					if (!started) continue;
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					String s1, s2[];
 					s1 = a0.substring("refresh(".length());
 					s1 = s1.substring(0, s1.length()-1);
@@ -339,10 +289,6 @@ public class Main {
 						d.tickIndexRequestQueue(true);
 					}
 				} else if ("transportCheck".equals(a0)) {
-					if (pih==null) {
-						pih = d.addPiHost(sid, xihost);
-						pih.setUserCredentials(uname, passwd);
-					}
 					transportCheck(d, pih);
 				} else if ("migrateHostDB".equals(a0)) {
 					if (pih==null) {
@@ -351,10 +297,13 @@ public class Main {
 					migrateHostDB(d, pih, "newHostDB");
 				} else if ("migrateMainDB".equals(a0)) {
 					d.migrateMainDB("newMainDB.tmp");
-				} else
+				} else {
 					System.err.println("\n\n!!!! Unknown command: " + a0 + "\n\n");
+					break;
+				}
 			}
 			if (started) {
+				started = false;
 				d.finish_session();
 				d.validatedb();
 				d.closedb();
@@ -367,6 +316,7 @@ public class Main {
 	}
 
 	static void migrateHostDB(Diffo d, PiHost p, String newdb) throws SQLException {
+		assert d!=null;
 		p.migrateHostDB(newdb);
 	}
 
