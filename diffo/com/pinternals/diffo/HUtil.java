@@ -7,7 +7,7 @@ import java.net.HttpURLConnection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-
+ 
 public class HUtil implements Runnable {
 	static List<HTask> incoming;
 	static HashMap<Integer,HTask> done;
