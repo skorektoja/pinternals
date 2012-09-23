@@ -1,6 +1,5 @@
 package com.pinternals.diffo;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -16,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 
 import org.ccil.cowan.tagsoup.Parser;
 import org.xml.sax.Attributes;
@@ -166,7 +166,7 @@ class SWCV {
 		is_original = Boolean.parseBoolean(po.kvm.get("isOriginal"));
 		is_sapb = "sap.com".equals(vendor);
 	}
-	void addDep (ArrayList<PiObject> pd, boolean removeUsed) {
+	void addDep (List<PiObject> pd, boolean removeUsed) {
 		deps = deps==null ? new ArrayList<DependentSWCV>(10) : deps;
 		ArrayList<PiObject> todel = null; 
 		for (PiObject po: pd) {

@@ -37,8 +37,8 @@ public class Diffo implements IDiffo, Cloneable {
 	public Long session_id = -1L;
 	public Proxy proxy;
 	private int threadsindexing = 2; 
-	private List<Thread> workers = new LinkedList<Thread>(), 
-			queue = new LinkedList<Thread>();
+	private List<Thread> incoming = new LinkedList<Thread>(), 
+			workers = new LinkedList<Thread>();
 
 	/**
 	 * @param dbname путь к файлу БД
@@ -420,8 +420,8 @@ public class Diffo implements IDiffo, Cloneable {
 			online = getMetaOnline(p, Side.SLD);
 			mergeMeta(db, online);
 		}
-		for (PiEntity e: mrgd) 
-			p.entities.put(e.intname, e);
+		for (PiEntity e: mrgd)
+			p.addEntity(e);
 	}
 
 	public ArrayList<PiEntity> getMetaDB(PiHost p, Side side) throws SQLException {
@@ -483,7 +483,7 @@ public class Diffo implements IDiffo, Cloneable {
 
 
 	/**
-	 * Новый индекс SWCV
+	 * Индекс и содержимое SWCV, в т.ч. зависимости
 	 * @param p
 	 * @return
 	 * @throws IOException
@@ -492,7 +492,7 @@ public class Diffo implements IDiffo, Cloneable {
 	 * @throws SAXException
 	 */
 	public boolean refreshSWCV(PiHost p) 
-		throws IOException, ParseException, SQLException, SAXException 
+		throws IOException, ParseException, SQLException, SAXException, InterruptedException 
 		{ 
 		ArrayList<SWCV> as = p.askSwcv(); 
 		boolean ok = true; 
@@ -554,7 +554,6 @@ public class Diffo implements IDiffo, Cloneable {
 		PreparedStatement del = prepareStatement("sql_swcvdeps_delone");
 		for (SWCV s: as) {
 			s.alignDep(as);
-//			System.out.println(s);
 
 			assert s.ref != -1L;
 			ResultSet r = DUtil.setStatementParams(ps, s.ref).executeQuery();
@@ -569,7 +568,6 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.setStatementParams(del, s.ref);
 				del.executeUpdate();
 				commit();
-//				System.out.println("Need to delete " + s.ref);
 				s.putDeps(ins, session_id);
 				ins.executeBatch();
 				commit();
@@ -598,25 +596,25 @@ public class Diffo implements IDiffo, Cloneable {
 				}
 			}
 		});
-		return workers.add(w);
+		return incoming.add(w);
 	}
 	
 	public boolean tickIndexRequestQueue(boolean loop) {
-		boolean b = workers.size()!=0 || queue.size()!=0;
+		boolean b = incoming.size()!=0 || workers.size()!=0;
 		while (b) {
-			if (workers.size()>0 && queue.size()<threadsindexing) {
-				Thread w = workers.remove(0);
+			if (incoming.size()>0 && workers.size()<threadsindexing) {
+				Thread w = incoming.remove(0);
 				w.start();
-				queue.add(w);
+				workers.add(w);
 			}
-			for (Thread w: queue) if (!w.isAlive()) { 
-				queue.remove(w);
+			for (Thread w: workers) if (!w.isAlive()) { 
+				workers.remove(w);
 				break;
 			}
-			b = workers.size()!=0 || queue.size()!=0;
+			b = incoming.size()!=0 || workers.size()!=0;
 			b = b && loop;
 		}
-		return workers.size()!=0 || queue.size()!=0;
+		return incoming.size()!=0 || workers.size()!=0;
 	}
 	
 
