@@ -3,9 +3,10 @@ package com.pinternals.diffo.api;
 import java.io.IOException;
 import java.net.Proxy;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import org.xml.sax.SAXException;
 
@@ -33,7 +34,7 @@ public class DifferencerFactory {
 //		return hm.get(idf);
 //	}
 
-	public static IDifferencerNode getDifferencerNode(IDiffo idiffo, String sid, String url, String user, String password) {
+	public static IDifferencerNode getDifferencerNode(IDiffo idiffo, String sid, String url, String user, String password) throws InterruptedException, ExecutionException {
 		DifferencerNode root = new DifferencerNode("root");
 		Diffo diffo = hm.get(idiffo);
 		assert diffo != null;
@@ -49,7 +50,7 @@ public class DifferencerFactory {
 					if (!side.equals(entity.side)) continue;
 					DifferencerNode side_entity = new DifferencerNode(entity.title);
 					side_root.addChild(side_entity);
-					ArrayList<DiffItem> items = diffo.list(pihost, entity.side, entity.intname);
+					List<DiffItem> items = diffo.list(pihost, entity.side, entity.intname);
 					Iterator<DiffItem> il = items.iterator();
 					while (il.hasNext()) {
 						side_entity.addChild(new DifferencerNode(il.next()));

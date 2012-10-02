@@ -14,13 +14,17 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.xml.sax.SAXException;
 
+import com.pinternals.diffo.PiEntity.ResultAttribute;
+import com.pinternals.diffo.PiObject.Kind;
 import com.pinternals.diffo.api.IDiffo;
 
 /**
@@ -30,13 +34,13 @@ import com.pinternals.diffo.api.IDiffo;
 public class Diffo implements IDiffo, Cloneable {
 	private static Logger log = Logger.getLogger(Diffo.class.getName());
 	public static String version = "0.1.1";
-	private ArrayList<PiHost> pihosts = new ArrayList<PiHost>(10);
+	private List<PiHost> pihosts = new ArrayList<PiHost>(10);
 	private Connection conn = null;
 	private File dbfile = null;
-
+	
 	public Long session_id = -1L;
 	public Proxy proxy;
-	private int threadsindexing = 2; 
+	private int threadsindexing = 5; 
 	private List<Thread> incoming = new LinkedList<Thread>(), 
 			workers = new LinkedList<Thread>();
 
@@ -396,64 +400,59 @@ public class Diffo implements IDiffo, Cloneable {
 	 * " not updated"; return i == 1; }
 	 * 
 	 */ 
-	public void refreshMeta(PiHost p) throws SQLException, IOException, SAXException, InterruptedException {
+	public void refreshMeta(PiHost p) throws SQLException, IOException, SAXException, InterruptedException, ExecutionException {
 		boolean force = false;
 
-		ArrayList<PiEntity> db, online;
-		List<PiEntity> mrgd = new LinkedList<PiEntity>();
+		List<PiEntity> db, online, mrgd = new LinkedList<PiEntity>();
 		db = getMetaDB(p, Side.Repository);
 		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Repository)) {
-			online = getMetaOnline(p, Side.Repository);
-			mergeMeta(db, online);
-		}
-		mrgd.addAll(db);
+			online = p.getMetaOnline(Side.Repository);
+			mergeMeta(mrgd, db, online);
+			commit();
+		} else
+			mrgd.addAll(db);
 		
 		db = getMetaDB(p, Side.Directory);
 		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Directory)) {
-			online = getMetaOnline(p, Side.Directory);
-			mergeMeta(db, online);
-		}
-		mrgd.addAll(db);
+			online = p.getMetaOnline(Side.Directory);
+			mergeMeta(mrgd, db, online);
+			commit();
+		} else
+			mrgd.addAll(db);
 
-		db = getMetaDB(p, Side.SLD);
-		if ((db.isEmpty() || force) && p.isSideAvailable(Side.SLD)) {
-			online = getMetaOnline(p, Side.SLD);
-			mergeMeta(db, online);
-		}
+//		db = getMetaDB(p, Side.SLD);
+//		if ((db.isEmpty() || force) && p.isSideAvailable(Side.SLD)) {
+//			online = p.getMetaOnline(Side.SLD);
+////			mergeMeta(db, online);
+//			commit();
+//		}
+		assert mrgd.size()>0;
+		p.entities.clear();
 		for (PiEntity e: mrgd)
 			p.addEntity(e);
+		assert p.entities.size()>0;
+		assert p.entities.size()==mrgd.size();
 	}
 
-	public ArrayList<PiEntity> getMetaDB(PiHost p, Side side) throws SQLException {
+	public List<PiEntity> getMetaDB(PiHost p, Side side) throws SQLException {
 		assert p!=null && side!=null;
 		PreparedStatement psa = prepareStatement("sql_ra_getone")
 			, eg = prepareStatement("sql_entities_getside", p.host_id, side.txt());
 		ResultSet rs = eg.executeQuery(), rsa;
-		ArrayList<PiEntity> db = new ArrayList<PiEntity>(0);
+		List<PiEntity> db = new ArrayList<PiEntity>(0);
 		while (rs.next()) {
 			PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4));
 			rsa = DUtil.setStatementParams(psa, x.entity_id).executeQuery();
 			while (rsa.next())
-				x.attrs.add(new ResultAttribute(rsa.getString(1), rsa.getString(2), rsa.getInt(3)));
+				x.addAttr(rsa.getString(1), rsa.getString(2), rsa.getInt(3));
 			db.add(x);
 		}
 		return db;
 	}
-	public ArrayList<PiEntity> getMetaOnline(PiHost p, Side side) throws IOException, SAXException, InterruptedException {
-		ArrayList<PiEntity> online = p.collectDocsRA(side);
-		assert online!=null;
-		boolean b = false;
-		while (!b) {
-			b = true;
-			for (PiEntity o: online)
-				b = b && o.ok;
-		}
-		return online;
-	}
-	public void mergeMeta(ArrayList<PiEntity> db, ArrayList<PiEntity> online) throws SQLException {
+	public void mergeMeta(List<PiEntity> mrgd, List<PiEntity> db, List<PiEntity> online) throws SQLException {
 		PreparedStatement inse = prepareStatement("sql_entities_ins")
 				, insa = prepareStatement("sql_ra_ins");
-		int i, q;
+		int i, q, sdb = db.size(), sonl = online.size();
 		for (PiEntity x: online) {
 			PiHost p = x.host;
 			q = db.indexOf(x);
@@ -472,131 +471,34 @@ public class Diffo implements IDiffo, Cloneable {
 					insa.addBatch();
 				}
 				insa.executeBatch();
-				p.addEntity(x);
+				mrgd.add(x);
 			} else {
-				assert x.attrs.size()==db.get(q).attrs.size();
-				p.addEntity(x);
+				assert x.attrs.size()==db.get(q).attrs.size() : "Attributes were changeed. System upgraded?";
+				mrgd.add(x);
 				db.remove(q);
 			}
 		}
+		assert mrgd.size()>sdb || mrgd.size()>sonl : "Merged size too small";
 	}
 
 
-	/**
-	 * Индекс и содержимое SWCV, в т.ч. зависимости
-	 * @param p
-	 * @return
-	 * @throws IOException
-	 * @throws ParseException
-	 * @throws SQLException
-	 * @throws SAXException
-	 */
-	public boolean refreshSWCV(PiHost p) 
-		throws IOException, ParseException, SQLException, SAXException, InterruptedException 
-		{ 
-		ArrayList<SWCV> as = p.askSwcv(); 
-		boolean ok = true; 
-		assert as != null : "SWCV extraction problem"; 
-		PreparedStatement ps = prepareStatement("sql_swcvdef_getone");
-		PreparedStatement ins = prepareStatement("sql_swcvdef_putone"); 
-		long found = 0, notfound = 0; 
-		for (SWCV s : as) { 
-			DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp); 
-			ResultSet r = ps.executeQuery();
-			if (r.next()) { 
-				s.ref = r.getLong(1); 
-				long l = r.getLong(2); 
-				assert l == 0 || l == 1 : "unknown index_objects SWCV ref=" + s.ref; 
-				s.index_me = r.getLong(2) == 1; 
-				found++; 
-			} else { 
-				notfound++; // find indexation settings depends on vendor 
-				s.index_me = true; //s.vendor.equals("sap.com") ? p.ime_sapcom : p.ime_customer; 
-				// 1..9 =
-				// host_id,session_id,ws_id,type,vendor,caption,name,sp,seqno
-				// 10..14 =
-				// modify_date,modify_user,dependent_id,is_editable,is_original
-				DUtil.setStatementParams(ins, p.host_id, session_id, s.ws_id, s.type,
-						s.vendor, s.caption, s.name, s.sp, 
-						s.modify_date, s.modify_user, s.is_editable ? 1 : 0, s.is_original ? 1 : 0,
-						s.elementTypeId,s.versionset, s.index_me ? 1 : 0);
-				ins.addBatch();
-			}
-		}
-		assert found + notfound == as.size() : "size are mismatches";
-		if (notfound > 0) {
-			int bi[] = ins.executeBatch(), nf2=0;
-			commit();
-			for (int i = 0; i < bi.length; i++)
-				nf2 += bi[i];
-			ok = ok && notfound == nf2;
-			assert notfound == nf2 : "not all the SWCV are updated";
-			// for getting ref, we are looking for unknown references
-			for (SWCV s : as)
-				if (s.is_unknown()) {
-					DUtil.setStatementParams(ps, p.host_id, s.ws_id, s.sp);
-					ResultSet r = ps.executeQuery();
-					ok = ok && r != null;
-					assert r != null : "SWCV isn't found after insert";
-					s.ref = r.getLong(1);
-					nf2--;
-				}
-			ok = ok && nf2 == 0;
-			assert nf2 == 0 : "not all the SWCV are with references yet";
-		}
-//		System.out.println("\n\n\n---------------------------------\n\n\n");
-		// Разбираемся с зависимостями
-		// TODO: проверить на изменении зависимостей. Пока сделать просто.
-		
-		// Проставить всем дочерним зависимостям ссылочные номера
-		ps = prepareStatement("sql_swcvdeps_getone");
-		ins = prepareStatement("sql_swcvdeps_putone");
-		PreparedStatement del = prepareStatement("sql_swcvdeps_delone");
-		for (SWCV s: as) {
-			s.alignDep(as);
-
-			assert s.ref != -1L;
-			ResultSet r = DUtil.setStatementParams(ps, s.ref).executeQuery();
-			boolean b = true;
-			while (r.next()) {
-				long depref = r.getLong(1), seqno = r.getLong(2);
-				byte[] depws_id = r.getBytes(3);
-				String depws_name = r.getString(4);
-				b = b && s.markDepDb(depref,seqno,depws_id,depws_name);
-			}
-			if (!b || !s.areAllMarked()) {
-				DUtil.setStatementParams(del, s.ref);
-				del.executeUpdate();
-				commit();
-				s.putDeps(ins, session_id);
-				ins.executeBatch();
-				commit();
-			}
-		}
-
-		p.swcv = new HashMap<Long,SWCV>(as.size());
-		for (SWCV s: as) p.swcv.put(s.ref, s);
-		return ok;
-	}
 	
 	public boolean putIndexRequestInQueue(final PiHost p, final PiEntity e) {
-		Thread w = new Thread(new Runnable(){
-			public void run() {
-				try {
-					if (e.side == Side.Repository)
-						handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
-					else if (e.side == Side.Directory)
-						handleIndexDirectoryObjectsVersions(p.askIndex(e), p, e);
-				} catch (SQLException e) {
-					e.printStackTrace();
-				} catch (IOException e) {
-					e.printStackTrace();
-				} catch (SAXException e) {
-					e.printStackTrace();
-				}
-			}
-		});
-		return incoming.add(w);
+//		Thread w = new Thread(new Runnable(){
+//			public void run() {
+//				try {
+//					if (e.side == Side.Repository)
+//						handleIndexRepositoryObjectsVersions(p.askIndex(e), p, e);
+//					else if (e.side == Side.Directory)
+//						handleIndexDirectoryObjectsVersions(p.askIndex(e), p, e);
+//					else
+//						new RuntimeException("There is no handler for " + e.side + "|" + e.intname);
+//				} catch (Exception e) {
+//					e.printStackTrace();
+//				}
+//			}
+//		});
+		return false; // incoming.add(w);
 	}
 	
 	public boolean tickIndexRequestQueue(boolean loop) {
@@ -662,6 +564,7 @@ public class Diffo implements IDiffo, Cloneable {
 			if (e==null) 
 				log.severe("Entity is null: Repository/" + x);
 			else
+//				p.getIndex(e);
 				putIndexRequestInQueue(p, e);
 		}
 	}
@@ -689,7 +592,7 @@ public class Diffo implements IDiffo, Cloneable {
 	}
 
 
-	private void handleIndexDirectoryObjectsVersions(ArrayList<PiObject> objs, PiHost p, PiEntity e)
+	private void handleIndexDirectoryObjectsVersions(List<PiObject> objs, PiHost p, PiEntity e)
 			throws SQLException {
 		assert objs!=null && p!=null && e!=null;
 		PreparedStatement sel = prepareStatement("sql_objdir_report", e.entity_id)
@@ -723,7 +626,8 @@ public class Diffo implements IDiffo, Cloneable {
 			assert o!=null : "UNKNOWN OBJECT reference " + oref;
 			assert UUtil.areEquals(o.versionid,vid);
 			assert UUtil.areEquals(o.objectid,oid);
-			
+
+			/*
 			if (txt.equals("CURRENT_LIVE") || txt.equals("CURRENT_DEAD")) 
 				o.refDB = oref;
 			if (txt.equals("NEWVER_LIVE")) {
@@ -760,26 +664,27 @@ public class Diffo implements IDiffo, Cloneable {
 				i = DUtil.executeUpdate(insV, true);
 				if (!o.deleted) p.addObject(o, session_id);
 			}
+			*/
 		}
-		p.commitObject();
+//		p.commitObject();
 		i = 0;
-		for (PiObject o: objs) if (o.refDB<1){
-			i++;
-		}
+//		for (PiObject o: objs) if (o.refDB<1){
+//			i++;
+//		}
 		assert i==0 : "" + i + " objects are not handled; all amount is " + objs.size() ;
 	}
-	private void fill_tmp4(ArrayList<PiObject> a, PiEntity e) throws SQLException {
-		DUtil.executeUpdate(prepareStatement("sql_tmp4_del", e.entity_id), true);
-		PreparedStatement ins = prepareStatement("sql_tmp4_ins");
-		assert a!=null;
-		for (PiObject o: a) {
-			DUtil.setStatementParams(ins, e.entity_id, o.objectid, o.versionid, o.deleted?1:0);
-			ins.addBatch();
-		}
-		DUtil.executeBatch(ins, true);
+	private void fill_tmp4(List<PiObject> a, PiEntity e) throws SQLException {
+//		DUtil.executeUpdate(prepareStatement("sql_tmp4_del", e.entity_id), true);
+//		PreparedStatement ins = prepareStatement("sql_tmp4_ins");
+//		assert a!=null;
+//		for (PiObject o: a) {
+//			DUtil.setStatementParams(ins, e.entity_id, o.objectid, o.versionid, o.deleted?1:0);
+//			ins.addBatch();
+//		}
+//		DUtil.executeBatch(ins, true);
 	}
-	private void fill_tmp8(ArrayList<PiObject> a, PiHost p, PiEntity e) throws SQLException {
-		PreparedStatement
+	private void fill_tmp8(List<PiObject> a, PiHost p, PiEntity e) throws SQLException {
+/*		PreparedStatement
 				del = prepareStatement("sql_tmp8_del", e.entity_id)
 				, ins = prepareStatement("sql_tmp8_ins")
 				, sel=prepareStatement("sql_tmp8_idx", e.entity_id);
@@ -803,9 +708,10 @@ public class Diffo implements IDiffo, Cloneable {
 		}
 		rs.close();
 		// Здесь должно остаться содержимое в tmp8 со ссылками на объекты
+		 */
 	}
 
-	private void handleIndexRepositoryObjectsVersions(ArrayList<PiObject> objs, PiHost p, PiEntity e)
+	private void handleIndexRepositoryObjectsVersions(List<PiObject> objs, PiHost p, PiEntity e)
 	throws SQLException {
 		assert objs!=null && p!=null && e!=null;
 		log.entering(Diffo.class.getCanonicalName(), "handleIndexRepositoryObjectsVersions");
@@ -815,17 +721,17 @@ public class Diffo implements IDiffo, Cloneable {
 			, ins = prepareStatement("sql_objrep_ins")
 			, insV = prepareStatement("sql_ver_ins")
 			;
-		boolean ignore_sap_deleted = true;	// true для игнорирования
-		boolean ignore_sap_alive = true;   // true для игнорирования
+		boolean ignore_sap_deleted = true;	// true для игнорирования удалённых SAP-объектов
+		boolean ignore_sap_alive = true;    // true для игнорирования живых SAP-объектов
 		
 		// Вставить гуиды, полученные онлайн, в tmp8 И УЗНАТЬ ССЫЛКИ REF
 		fill_tmp8(objs, p, e);
 
 		// делаем искалку
-		HashMap<ByteBuffer,ArrayList<PiObject>> hm = new HashMap<ByteBuffer,ArrayList<PiObject>>(objs.size());
+		HashMap<ByteBuffer,List<PiObject>> hm = new HashMap<ByteBuffer,List<PiObject>>(objs.size());
 		for (PiObject o: objs) {
 			ByteBuffer b = ByteBuffer.wrap(o.objectid);
-			ArrayList<PiObject> t = hm.get(b);
+			List<PiObject> t = hm.get(b);
 			if (t==null) {
 				t = new ArrayList<PiObject>(2);
 				t.add(o);
@@ -846,7 +752,7 @@ public class Diffo implements IDiffo, Cloneable {
 			if (log.isLoggable(Level.FINE))
 				log.fine(DUtil.format("sql_objrep_report", e.intname, txt, UUtil.getStringUUIDfromBytes(oid), UUtil.getStringUUIDfromBytes(vid), swcref, oref ));
 
-			ArrayList<PiObject> ol = hm.get(ByteBuffer.wrap(oid));
+			List<PiObject> ol = hm.get(ByteBuffer.wrap(oid));
 			PiObject o = null;
 			swcv = null;
 			if (ol!=null) for (PiObject oi : ol) {
@@ -858,6 +764,8 @@ public class Diffo implements IDiffo, Cloneable {
 					break;
 				}
 			}
+			
+/*			
 			long keys[] = new long[10];
 			if (txt.equals("CURRENT_LIVE") || txt.equals("CURRENT_DEAD")) 
 				o.refDB = oref;
@@ -915,6 +823,7 @@ public class Diffo implements IDiffo, Cloneable {
 			} else {
 				i = 0/0;
 			}
+			*/
 		}
 		i = -sapdeleted - sapalive;
 		for (PiObject o: objs) if (o.refDB<1){
@@ -923,10 +832,10 @@ public class Diffo implements IDiffo, Cloneable {
 		if (i!=0) {
 			assert i==0: i+" objects are not handled; all amount is " + objs.size();
 		}
-		p.commitObject();
+//		p.commitObject();
 	}
 
-	public void askSld(PiHost p) throws IOException, SAXException {
+	public void askSld(PiHost p) {
 		Side l = Side.SLD;
 		PiEntity slds[] = {
 				p.getEntity(l, "SAP_BusinessSystem"),
@@ -934,7 +843,8 @@ public class Diffo implements IDiffo, Cloneable {
 				p.getEntity(l, "SAP_BusinessSystemPath"),
 		};
 		for (PiEntity e: slds) {
-			ArrayList<PiObject> objs = p.askIndex(e);
+			// TODO: not implemented yet
+//			ArrayList<PiObject> objs = p.askIndex(e);
 		}
 	}	
 
@@ -959,44 +869,26 @@ public class Diffo implements IDiffo, Cloneable {
 			}
 	}
 	
-	public void fullFarsch(PiHost p) 
-	throws SQLException, IOException, SAXException, ParseException, InterruptedException {
-		boolean b = true;
-		refreshMeta(p);
-		if (p.isSideAvailable(Side.Repository)) {
-			refreshSWCV(p);
-			if ((p.swcv.size()>0)) 
-				askIndexRepository(p);
-		}
-		if (p.isSideAvailable(Side.Directory)) {
-			askIndexDirectory(p);
-		}
-		tickIndexRequestQueue(true);
-		if (p.isSideAvailable(Side.SLD)) {
-			askSld(p);
-		}
-	}
-
-	public ArrayList<DiffItem> list (PiHost p, PiEntity el) throws SQLException, IOException {
+	public List<DiffItem> list (PiHost p, PiEntity el) throws SQLException, IOException {
 		assert p!=null && p.host_id!=0 : "PiHost isn't initialized";
 		assert p.entities !=null && p.entities.size() > 0 : "entities are empty";
 		assert el!=null && el.entity_id!=0 : "Entity is not refreshed yet (" + el + ")";
 		
 		ResultSet rs;
-		String r;
-		RawRef k;
-		ArrayList<DiffItem> al = new ArrayList<DiffItem>(100); 
-		rs = prepareStatement("sql_diff02", el.entity_id).executeQuery();
-		while (rs.next()) {
-			r = rs.getString(1);
-			k = new RawRef(r);
-			DiffItem di = new DiffItem(this,p,k.key,rs.getBytes(2),rs.getBytes(3),rs.getLong(4),rs.getLong(5)==1);
-			al.add(di);
-		}
+//		String r;
+//		RawRef k;
+		List<DiffItem> al = new ArrayList<DiffItem>(100); 
+//		rs = prepareStatement("sql_diff02", el.entity_id).executeQuery();
+//		while (rs.next()) {
+//			r = rs.getString(1);
+//			k = new RawRef(r);
+//			DiffItem di = new DiffItem(this,p,k.key,rs.getBytes(2),rs.getBytes(3),rs.getLong(4),rs.getLong(5)==1);
+//			al.add(di);
+//		}
 		return al;
 	}
 
-	public ArrayList<DiffItem> list (PiHost p, Side side, String entname) throws SQLException, IOException, SAXException, InterruptedException {
+	public List<DiffItem> list (PiHost p, Side side, String entname) throws SQLException, IOException, SAXException, InterruptedException, ExecutionException {
 		assert p!=null && p.host_id!=0 : "PiHost isn't initialized";
 		if (p.entities == null || p.entities.size()==0) {
 			refreshMeta(p);
@@ -1004,53 +896,42 @@ public class Diffo implements IDiffo, Cloneable {
 		return list(p, p.getEntity(side, entname));
 	}
 	
-	@Override
-	public boolean refresh(String sid, String url, String user, String password)
-	throws MalformedURLException, SQLException, IOException, SAXException, ParseException, InterruptedException
-	 {
-		PiHost p = addPiHost(sid, url);
-		p.setUserCredentials(user, password);
-		fullFarsch(p);
-		return true;
-	}
-
-
 	public HashMap<String,String> readTransportNames(long oref) 
 	throws SQLException, UnsupportedEncodingException {
 		log.info("Try to read transport names for oref=" + oref);
 		PreparedStatement ps = prepareStatement("sql_object_transpnames", oref);
 		HashMap<String,String> hm = new HashMap<String,String>(10);
-		ResultSet rs = ps.executeQuery();
-		while (rs.next()) {
-			byte[] oid = rs.getBytes(1), swid = rs.getBytes(5);
-			hm.put("getObjectID", UUtil.getStringUUIDfromBytes(oid) );
-			String s = "/" + rs.getString(3).toLowerCase().substring(0, 3) + "/", n = null;
-			hm.put("getTransportSuffix", s);
-			hm.put("getObjectType", rs.getString(4));
-			hm.put("getObjectSWCV", swid==null ? "" : UUtil.getStringUUIDfromBytes(swid) );
-			Side d = Side.valueOf(rs.getString(3));
-			
-			RawRef r = new RawRef(rs.getString(2));
-			String[] sa = r.key.split("\\|"); 
-			switch (d) {
-				case Repository:
-					assert sa!=null && sa.length==2;
-					n = sa[0];
-					s = sa[1];
-					break;
-				case Directory:
-					assert sa!=null;
-					n = r.key;
-					s = null;
-					break;
-				default:
-					n = "UNKNOWN";
-					s = null;
-			}
-			hm.put("getObjectName", n);
-			hm.put("getObjectNamespace", s);
-			rs.close();
-		}
+//		ResultSet rs = ps.executeQuery();
+//		while (rs.next()) {
+//			byte[] oid = rs.getBytes(1), swid = rs.getBytes(5);
+//			hm.put("getObjectID", UUtil.getStringUUIDfromBytes(oid) );
+//			String s = "/" + rs.getString(3).toLowerCase().substring(0, 3) + "/", n = null;
+//			hm.put("getTransportSuffix", s);
+//			hm.put("getObjectType", rs.getString(4));
+//			hm.put("getObjectSWCV", swid==null ? "" : UUtil.getStringUUIDfromBytes(swid) );
+//			Side d = Side.valueOf(rs.getString(3));
+//			
+//			RawRef r = new RawRef(rs.getString(2));
+//			String[] sa = r.key.split("\\|"); 
+//			switch (d) {
+//				case Repository:
+//					assert sa!=null && sa.length==2;
+//					n = sa[0];
+//					s = sa[1];
+//					break;
+//				case Directory:
+//					assert sa!=null;
+//					n = r.key;
+//					s = null;
+//					break;
+//				default:
+//					n = "UNKNOWN";
+//					s = null;
+//			}
+//			hm.put("getObjectName", n);
+//			hm.put("getObjectNamespace", s);
+//			rs.close();
+//		}
 		ps.close();
 		return hm;
 	}
@@ -1059,4 +940,255 @@ public class Diffo implements IDiffo, Cloneable {
 		HUtil.shutdown();
 		log.info(DUtil.format("shutdown"));
 	}
+	
+	// ------------------------------------------------------------------------------
+	public List<SWCV> __getSwcvDb(PiHost p, PiEntity ent) throws SQLException {
+		List<SWCV> es = new ArrayList<SWCV>(10);
+		PreparedStatement ps = prepareStatement("sql_swcvdef_getall", p.host_id)
+				, dep = prepareStatement("sql_swcvdeps_getone")
+				;
+		ResultSet rs = ps.executeQuery(), rd;
+		while (rs.next()) {
+			SWCV s = new SWCV(ent, rs);
+			DUtil.setStatementParams(dep, s.refDB);
+			rd = dep.executeQuery();
+			s.setDeps(rd);
+			es.add(s);
+		}
+		log.fine("SWCV from database: " + es.size());
+		return es;
+	}
+	public List<PiObject> __getIndexDb(PiHost p, PiEntity ent) throws SQLException {
+		List<PiObject> es = new ArrayList<PiObject>(10);
+		PreparedStatement obj = prepareStatement("sql_objver_getall", p.host_id, ent.entity_id)
+//				, ver = prepareStatement("sql_ver_getlatest")
+				;
+		ResultSet ro = obj.executeQuery();//, rv;
+		while (ro.next()) {
+			PiObject o = new PiObject(ent, ro);
+//			o.setVersion(rv);
+			es.add(o);
+		}
+		return es;
+	}
+	/**
+	 * Индекс и содержимое SWCV, в т.ч. зависимости
+	 * @param p
+	 * @return
+	 * @throws IOException
+	 * @throws ParseException
+	 * @throws SQLException
+	 * @throws SAXException
+	 */
+	public void __refreshSWCV(PiHost p, boolean forceOnline) 
+		throws IOException, ParseException, SQLException, SAXException, InterruptedException, ExecutionException 
+		{
+		assert p.entities!=null && p.entities.size()>0 && p.getEntity(Side.Repository, "workspace")!=null;
+		PiEntity ent = p.getEntity(Side.Repository, "workspace");
+
+		assert p!=null && ent!=null : "refreshSWCV input" + p + ent;
+		List<SWCV> online = null, db = __getSwcvDb(p, ent);
+
+		if (db.size() == 0 || forceOnline) online = p.__getSwcvOnline(ent);
+
+		if (online!=null && online.size()!=0) {
+			// сравнение и выравнивание
+			PreparedStatement ins = prepareStatement("sql_swcvdef_putone")
+					, insdep = prepareStatement("sql_swcvdeps_putone")
+					, deldep = prepareStatement("sql_swcvdeps_delprv")
+					, ref = prepareStatement("sql_swcvdeps_ref", p.host_id)
+					, refset = prepareStatement("sql_swcvdeps_refset")
+					;
+	
+			// 1й проход -- сопоставляем БД и онлайн, проставляем равные
+			// поиск от БД
+			boolean dirty = false;
+			for (SWCV d: db) for (SWCV o: online) if (d.equalAnother(o)) {
+				o.refDB = d.refDB;
+				log.finest("SWCV-DB " + d + " exists online. Marked as " + d.refDB);
+				online.remove(o);
+				if (o.deps.size()!=d.deps.size()) {
+					log.finest("This " + o + " has dirty deps");
+					DUtil.setStatementParams(deldep,o.refDB);
+					deldep.addBatch();
+					o.setInsertBatchDepFields(insdep);
+					dirty = true;
+				}
+				break;
+			}
+			// если были изменения в зависимостях, пишем в БД
+			if (dirty) {
+				DUtil.lock();
+				DUtil.executeBatch(deldep);
+				DUtil.executeBatch(insdep);
+				DUtil.unlock(conn);	
+				dirty = false;
+			}
+			// проход 2 -- пишем новые SWCV 
+			if (online.size()>0) {
+				// есть что-то ненайденное ранее -- сохраняем
+				for (SWCV o: online) if (o.refDB==-1L) {
+					o.setInsertFields(ins);
+					ins.addBatch();
+				}
+				DUtil.lock();
+				DUtil.executeBatch(ins);
+				DUtil.unlock(conn);
+				db = __getSwcvDb(p, ent);
+				for (SWCV o: online) for (SWCV d: db) if (d.equalAnother(o)) {
+					o.refDB = d.refDB;
+				}
+				for (SWCV o: online) if (o.refDB==-1L) {
+					log.severe("This is still unknown SWCV: " + o);
+					assert o.refDB!=-1L : "This is still unknown SWCV: " + o;
+				}
+			}
+			HashMap<Long,SWCV> refcacheD = new HashMap <Long,SWCV>(100);
+			for (SWCV d: db) refcacheD.put(d.refDB, d);
+			for (SWCV o: online) {
+				SWCV d = refcacheD.get(o.refDB);  
+				assert d!=null;
+				if (o.deps.size() != d.deps.size()) {
+					log.finest("SWCV " + o + " has dirty deps");
+					DUtil.setStatementParams(deldep, o.refDB);
+					deldep.addBatch();
+					o.setInsertBatchDepFields(insdep);
+					dirty = true;
+				}
+			}
+			if (dirty) {
+				DUtil.lock();
+				DUtil.executeBatch(deldep);
+				DUtil.executeBatch(insdep);
+				DUtil.unlock(conn);	
+				dirty = false;
+			}
+			ResultSet rs = ref.executeQuery();
+			while (rs.next()) {
+				DUtil.setStatementParams(refset, 
+						rs.getLong(1) == 0 ? null : rs.getLong(1),
+						rs.getLong(2),
+						rs.getLong(3),
+						rs.getBytes(4)
+						);
+				refset.addBatch();
+				dirty = true;
+			}
+			if (dirty) {
+				DUtil.lock();
+				DUtil.executeBatch(refset);
+				DUtil.unlock(conn);
+			}
+		}
+		p.swcv = new HashMap<Long,SWCV>(db.size());
+		for (SWCV d: db) p.swcv.put(d.refDB, d);
+	}
+	List<PiObject> mergeObjects(PiHost p, PiEntity ent, List<PiObject> db, List<PiObject> online) { 
+		List<PiObject> mrgd = new ArrayList<PiObject>(1000);
+		for (PiObject o: online) {
+			int r = -1;
+			PiObject same = null;
+			for (PiObject d: db) {
+				r = o.equalAnother(d);
+				if (r==0) 
+					continue;
+				same = d;
+				break;
+			}
+			if (same==null) {
+				// не найдено -- добавляем из онлайна
+				o.kind = Kind.UNKNOWN;
+				o.is_dirty = true;
+				mrgd.add(o);
+			} else if (r==2) {
+				// нашли идентичный -- добавляем из базы
+				same.kind = Kind.NULL;
+				same.is_dirty = false;
+				mrgd.add(same);
+			} else if (r==1) {
+				// объект в онлайне другой версии
+				o.previous = same;
+				o.kind = Kind.MODIFIED;
+				o.is_dirty = true;
+				mrgd.add(o);
+			}
+		}
+		return mrgd;
+	}
+	List<PiObject> updateQueue = new LinkedList<PiObject>();
+	synchronized void addPiObjectUpdateQueue(PiObject o) {
+		assert o.is_dirty;
+		assert !o.inupdatequeue : "Already in queue";
+		o.inupdatequeue = true;
+		updateQueue.add(o);
+	}
+	
+	void loopUpdateQueue() throws SQLException {
+		PreparedStatement insobj = prepareStatement("sql_obj_ins1")
+				, insver = prepareStatement("sql_ver_ins1")
+				
+				, chnobj = prepareStatement("sql_obj_upd2")
+				, chnpver = prepareStatement("sql_ver_upd21")
+				, chnnver = prepareStatement("sql_ver_ins22")
+				;
+		HashSet<byte[]> ud1 = new HashSet<byte[]>();
+		for (PiObject o: updateQueue) {
+			assert o.kind!=Kind.NULL  : "PiObject w/o need of change was added in update queue " + o; 
+			assert o.inupdatequeue : "PiObject is already in update queue";
+			switch (o.kind) {
+				case UNKNOWN:
+					assert (!ud1.contains(o.objectid)) : 
+						"CONFLICT: duplicate " + o.qryref + "\t" + UUtil.getStringUUIDfromBytes(o.objectid);
+					DUtil.setStatementParams(insobj, 
+							o.e.host.host_id, 
+							session_id,
+							o.refSWCV!=-1L ? o.refSWCV : null,
+							o.objectid,
+							o.e.entity_id,
+							o.qryref,
+							o.deleted ? 1 : 0 );
+					insobj.addBatch();
+					DUtil.setStatementParams(insver, 
+							o.e.host.host_id, o.e.entity_id, o.objectid, o.versionid, session_id);
+					insver.addBatch();
+					ud1.add(o.objectid);
+					break;
+				case MODIFIED:
+					assert o.previous!=null : "Reference to previous object isn't set";
+					log.info("Attempt to add object " + o);
+					// удаляем объект если не был удалён
+					if (o.deleted!=o.previous.deleted) {
+						DUtil.setStatementParams(chnobj, o.deleted?1:0);
+						chnobj.addBatch();
+					}
+					// маркируем версию как неактивную
+					DUtil.setStatementParams(chnpver, o.previous.refDB, o.previous.versionid, 0);
+					chnpver.addBatch();
+					// добавляем новую версию
+					DUtil.setStatementParams(chnnver, o.previous.refDB, o.versionid, session_id, 1);
+					chnnver.addBatch();
+				default:
+					break;
+			}
+		}
+		// Уррра коротким и максимально пакетным транзакциям!
+		DUtil.lock();
+		DUtil.executeBatch(insobj);
+		DUtil.executeBatch(insver);
+		DUtil.executeBatch(chnobj);
+		DUtil.executeBatch(chnpver);
+		DUtil.executeBatch(chnnver);
+		DUtil.unlock(conn);
+		
+	}
+	
+	
+	@Override
+	public boolean refresh(String sid, String url, String user, String password)
+			throws MalformedURLException, SQLException, IOException,
+			SAXException, ParseException, InterruptedException {
+		// TODO Auto-generated method stub
+		return false;
+	}
+
 }

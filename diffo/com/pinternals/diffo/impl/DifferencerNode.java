@@ -104,7 +104,7 @@ public class DifferencerNode implements IDifferencerNode {
 	}
 	@Override
 	public boolean refresh(IDiffo idiffo, boolean withChildren)
-	throws MalformedURLException, SQLException, IOException, SAXException, ParseException {
+	throws MalformedURLException, SQLException, IOException, SAXException, ParseException, InterruptedException {
 		// TODO Auto-generated method stub
 		if (withChildren)
 			return idiffo.refresh(item.p.sid, item.p.uroot.toExternalForm(), item.p.uname, item.p.passwd);
