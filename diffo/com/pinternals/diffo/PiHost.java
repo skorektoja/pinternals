@@ -261,6 +261,12 @@ public class PiHost {
 		FutureTask<HTask> fa = HUtil.addHTask(ha);
 
 		ha = fa.get();
+		int cnt = 0;
+		while (ha.bis == null && cnt<3) {
+			fa = HUtil.addHTask(ha);
+			ha = fa.get();
+			cnt++;
+		}
 		SimpleQueryHandler sqh = PiEntity.handleStream(ha.bis);
 		e.parse_index(rez, sqh, del);
 		return rez;
