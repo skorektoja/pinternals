@@ -61,8 +61,10 @@ class HierEnt implements Hier {
 				) ) { 
 			// ignore
 		} else if (side.side==Side.Repository && ( 
-				ent.intname.equals("ifmopmess") 
+					ent.intname.equals("ifmopmess")  
 				|| ent.intname.equals("MAP_HELPER")
+				|| ent.intname.startsWith("aris")
+				|| ent.intname.startsWith("BO_")
 				) ) {
 			// ignore
 		} else if ( (side.side==Side.Directory ) 

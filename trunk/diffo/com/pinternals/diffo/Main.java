@@ -263,6 +263,11 @@ public class Main {
 				} else if ("addHost".equals(a0)) {
 					pih = d.addPiHost(sid, xihost);
 					pih.setUserCredentials(uname, passwd);
+				} else if ("refreshMinimum".equals(a0)) {
+					assert pih!=null : "addHost wasn't called before refresh";
+					HierRoot root = new HierRoot(d,pih);
+					d.refreshMeta(pih);
+					d.__refreshSWCV(pih, false);
 				} else if ("refresh".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
 					HierRoot root = new HierRoot(d,pih);

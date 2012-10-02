@@ -169,7 +169,7 @@ public class PiHost {
 
 			for (FutureTask<HTask> x: queue) {
 				HTask h = x.get();
-				assert h.rc == 200 : "Non-successfull http rc: " + h.rc + " for OK HTask"; 
+				assert h.rc == 200 : "Non-successfull http rc: " + h.rc + " for OK HTask" + h.name; 
 				assert h.bis!=null : "Empty bis for " + h.hc.getURL().toExternalForm() + " " + h.method + " " + h.post;
 				PiEntity e = (PiEntity)h.refObj;
 				assert e!=null;

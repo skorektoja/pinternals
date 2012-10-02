@@ -28,10 +28,10 @@ public class HUtil {
 	}
 	public HUtil(int threads) {
 		limit = threads;
-		q = new ArrayBlockingQueue<Runnable>(limit);
+		q = new ArrayBlockingQueue<Runnable>(limit+2000);
 //		shutdown = false;
 		log.config("Registered HUtil, maxthreads=" + limit);
-		ex = new ThreadPoolExecutor(limit, limit+10, 20, TimeUnit.SECONDS, q);
+		ex = new ThreadPoolExecutor(limit, limit+5, 1, TimeUnit.SECONDS, q);
 	}
 	public static void shutdown() {
 		ex.shutdown();
@@ -44,10 +44,13 @@ public class HUtil {
 		h.ok = false;
 		
 		FutureTask<HTask> f = new FutureTask<HTask>(h);
-		while (ex.getActiveCount() >= limit)
+		int i=0;
+		while (ex.getPoolSize() < 10 && i++<10)
 			try {
-				ex.awaitTermination(1000, TimeUnit.MILLISECONDS);
-			} catch (InterruptedException ignore) {}
+				ex.awaitTermination(10, TimeUnit.MILLISECONDS);
+			} catch (InterruptedException ignore) {
+				break;
+			}
 		ex.execute(f);
 //		incoming.add(t);
 		if (log.isLoggable(Level.FINEST)) log.config("HUtil.addHTask for new task name=" + h.name + " URL:" + h.hc.getURL().toExternalForm());

@@ -1132,6 +1132,7 @@ public class Diffo implements IDiffo, Cloneable {
 				, chnnver = prepareStatement("sql_ver_ins22")
 				;
 		HashSet<byte[]> ud1 = new HashSet<byte[]>();
+		long z=0;
 		for (PiObject o: updateQueue) {
 			assert o.kind!=Kind.NULL  : "PiObject w/o need of change was added in update queue " + o; 
 			assert o.inupdatequeue : "PiObject is already in update queue";
@@ -1139,10 +1140,13 @@ public class Diffo implements IDiffo, Cloneable {
 				case UNKNOWN:
 					assert (!ud1.contains(o.objectid)) : 
 						"CONFLICT: duplicate " + o.qryref + "\t" + UUtil.getStringUUIDfromBytes(o.objectid);
-					o.refSWCV = o.extrSwcvSp(o.e.host);
-					if (o.e.side==Side.Repository && (o.refSWCV==0 || o.refSWCV==-1L)) {
-						log.severe("New detected repository object has unknown no reference to SWCV " + o);
-						assert false: "New detected repository object has unknown no reference to SWCV " + o;
+
+					if (o.e.side==Side.Repository) {
+						o.refSWCV = o.extrSwcvSp(o.e.host);
+						if (o.refSWCV==-1L) {
+							log.severe("New detected repository object has unknown no reference to SWCV " + o);
+							assert false: "New detected repository object has unknown no reference to SWCV " + o;
+						}
 					}
 					DUtil.setStatementParams(insobj, 
 							o.e.host.host_id, 
@@ -1157,9 +1161,17 @@ public class Diffo implements IDiffo, Cloneable {
 							o.e.host.host_id, o.e.entity_id, o.objectid, o.refSWCVsql(), o.versionid, session_id);
 					insver.addBatch();
 					ud1.add(o.objectid);
+					z++;
 					break;
 				case MODIFIED:
 					assert o.previous!=null : "Reference to previous object isn't set";
+					if (o.e.side==Side.Repository) {
+						o.refSWCV = o.extrSwcvSp(o.e.host);
+						if (o.refSWCV==-1L) {
+							log.severe("New detected repository object has unknown no reference to SWCV " + o);
+							assert false: "New detected repository object has unknown no reference to SWCV " + o;
+						}
+					}
 					log.info("Attempt to add object " + o);
 					// удаляем объект если не был удалён
 					if (o.deleted!=o.previous.deleted) {
@@ -1172,8 +1184,20 @@ public class Diffo implements IDiffo, Cloneable {
 					// добавляем новую версию
 					DUtil.setStatementParams(chnnver, o.previous.refDB, o.versionid, session_id, 1);
 					chnnver.addBatch();
+					z++;
 				default:
 					break;
+			}
+			if (z>100) {
+				// Уррра коротким и максимально пакетным транзакциям!
+				DUtil.lock();
+				DUtil.executeBatch(insobj);
+				DUtil.executeBatch(insver);
+				DUtil.executeBatch(chnobj);
+				DUtil.executeBatch(chnpver);
+				DUtil.executeBatch(chnnver);
+				DUtil.unlock(conn);
+				z=0;
 			}
 		}
 		// Уррра коротким и максимально пакетным транзакциям!
