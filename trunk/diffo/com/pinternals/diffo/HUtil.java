@@ -110,7 +110,6 @@ class HTask implements Callable<HTask> {
 			}
 		}
 		connect();
-		System.out.println("HTask run: " + name + " connect=" + ok);
 		if (ok) {
 			if (log.isLoggable(Level.FINE))
 				log.fine("HTask.run( " + this.hashCode() + " ) ok");
@@ -123,7 +122,7 @@ class HTask implements Callable<HTask> {
 					if (fos!=null) fos.write(i);
 					i = hc.getInputStream().read();
 				}
-				System.out.println("HTask run: " + name + " read OK bytes:" + a.size());
+//				System.out.println("HTask run: " + name + " read OK bytes:" + a.size());
 			} catch (IOException ex) {
 				ok = false;
 				ex.printStackTrace();

@@ -65,8 +65,10 @@ class HierEnt implements Hier {
 				|| ent.intname.equals("MAP_HELPER")
 				) ) {
 			// ignore
-		} else if ( (side.side==Side.Directory && ent.intname.equals("MappingRelation")) 
-				|| (side.side==Side.Repository && ent.intname.equals("XI_TRAFO"))
+		} else if ( (side.side==Side.Directory ) 
+//				|| (side.side==Side.Repository && ent.intname.equals("XI_TRAFO"))
+//				|| (side.side==Side.Repository && ent.intname.equals("AdapterMetaData"))
+//				|| (side.side==Side.Repository && ent.intname.equals("ifmextdef"))
 				) {
 			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
 			act.addAll(del);
