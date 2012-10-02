@@ -45,7 +45,7 @@ public interface IDiffo {
 	public void closedb() throws SQLException;
 
 	public boolean refresh(String sid, String url, String user, String password)
-	throws MalformedURLException, SQLException, IOException, SAXException, ParseException;
+	throws MalformedURLException, SQLException, IOException, SAXException, ParseException, InterruptedException;
 
 //	public HashMap<String,String> readTransportNames(long ref)
 //	throws SQLException, UnsupportedEncodingException;

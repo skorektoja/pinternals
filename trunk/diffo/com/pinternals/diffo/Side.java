@@ -16,21 +16,21 @@ public enum Side  {
 	;
 	protected static String C_REPSUF = "/rep/support/SimpleQuery"
 		, C_DIRSUF = "/dir/support/SimpleQuery"
-		// those urls are stolen from ...j2ee\cluster\apps\sap.com\com.sap.aii.af.app\servlet_jsp\AdapterFramework\com.sap.aii.af.war\scheduler and so on 
+		// those urls are given from ...j2ee\cluster\apps\sap.com\com.sap.aii.af.app\servlet_jsp\AdapterFramework\com.sap.aii.af.war\scheduler and so on 
 		, C_AF_S = "/AdapterFramework/ChannelAdminServlet?action=%s&channelID=%s"
 		, C_CPA_S = "/CPACache/monitor.jsp"
 		, C_AF_SCH_XML = "/AdapterFramework/scheduler/scheduler.jsp?xml&tz"
+//		, C_SLDSUF = "/sld/cimom" // not good for pi.esworkplace
+		, C_SLDSUF = "/webdynpro/dispatcher/sap.com/tc~sld~wd~main/Main"
 //		, C_AF_SCH_HTML = "/AdapterFramework/scheduler/scheduler.jsp?tz"
 		;
 	private String defurl() {
 		switch (this) {
 		case Directory: 	return C_DIRSUF; //"/dir/start/index.jsp";
 		case Repository:	return C_REPSUF; //"/rep/start/index.jsp";
-		case SLD:			
-			//return "/sld/cimom" // not good for pi.esworkplace
-			return "/webdynpro/dispatcher/sap.com/tc~sld~wd~main/Main";
+		case SLD:			return C_SLDSUF;			
 		default:
-			throw new RuntimeException("for side: " + this + " there is no defurl");
+			throw new RuntimeException("for side: " + this + " there is no default URL");
 		}
 	}
 	protected static Side get(String s) {
@@ -50,16 +50,5 @@ public enum Side  {
 	protected static URL askCcStatus(URL u, String action, byte[] object_id) throws MalformedURLException {
 		String uq = new Formatter().format(C_AF_S, action, UUtil.getStringUUIDfromBytes(object_id)).toString();
 		return new URL(u.toExternalForm() + uq);
-	}
-	
-	protected String createQueryResultAttributes(String intname) {
-		switch (this) {
-		case Directory:
-			return "qc=Default+(for+directory+objects)&syncTabL=true&deletedL=B&xmlReleaseL=7.1&types=" + intname + "&action=Refresh+depended+values";
-		case Repository:
-			return "qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&action=Refresh+depended+values";
-		default:
-			throw new RuntimeException("for side: " + this + " there are no SimpleQuery result attributes");
-		}
 	}
 }

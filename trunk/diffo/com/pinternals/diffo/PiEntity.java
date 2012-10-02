@@ -2,11 +2,9 @@ package com.pinternals.diffo;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.net.URLDecoder;
-import java.nio.ByteBuffer;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -14,222 +12,25 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.FutureTask;
 
 import org.ccil.cowan.tagsoup.Parser;
-import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
-class CPACache {
-	private static String pcc = "CPAObject: (Channel) keys: ObjectId="; 
-	private HashSet<ByteBuffer> channelset;
-	java.util.Date refreshed = null;
-	
-	public void parseHtml(String txt) {
-		refreshed = new Date();
-		channelset = new HashSet<ByteBuffer>(100);
-		String lines[] = txt.split("\\n");
-		byte b[];
-		if (lines!=null) for (int i=0; i<lines.length; i++) {
-			String s = lines[i].trim();
-			if (s.startsWith(pcc)) {
-				b = UUtil.getBytesUUIDfromString(s.substring(pcc.length(), pcc.length()+33));
-	 			channelset.add(ByteBuffer.wrap(b));
-			} 
-		}
-	}
-	public boolean isChannelInCPA(byte b[]) {
-		return channelset.contains(ByteBuffer.wrap(b));
-	}
-	public String toString() {
-		return DUtil.format("CPA_toString", refreshed, channelset.size());
-	}
-	
-}
 
-class RawRef {
-	// parts of query string, most useful
-	// naive implementation
-	public String key=null; // unescaped one!
-	byte[] oid;
-	RawRef (String queryString) throws UnsupportedEncodingException {
-		assert queryString != null;
-		String params[] = queryString.split("&");
-		for (int i=0; i<params.length; i++) {
-			String kv[] = params[i].split("=", 2);
-			assert kv!=null && kv[0]!=null && kv[1]!=null;
-			String v = new String(URLDecoder.decode(kv[1], "UTF-8"));
-			if (kv[0].equals("KEY")) 
-				key = v;
+public class PiEntity {
+	class ResultAttribute {
+		String internal, caption;
+		int seqno;
+		public ResultAttribute (String internal, String caption, int seqno) {
+			this.internal = internal;
+			this.caption = caption;
+			this.seqno = seqno;
 		}
-	}
-}
-
-class PiObject {
-	static String TPL_SWCV = "&VC=SWC&SWCGUID=", TPL_SP="&SP="; 
-	boolean  deleted;
-	PiEntity e;
-	String   rawref;
-	byte[]   objectid,versionid;
-	long     refDB, refSWCV;
-	HashMap<String,String> kvm = null;					// only for SWCV and SLD
-	PiObject (PiEntity p, boolean deleted) {
-		e = p;
-		this.deleted = deleted;
-	}
-	public String toString() {
-		String s;
-		if (kvm==null) {
-			s = rawref!=null && rawref.indexOf("/read/ext")>0 ? rawref.split("/read/ext?")[1] : rawref;
-			s = e.title + "_" + refDB + ":" + refSWCV + (deleted?" DELETED":"") + " {" + UUtil.getStringUUIDfromBytes(objectid) + ", " + UUtil.getStringUUIDfromBytes(versionid) + "} " + s;
-		} else {
-			s = e.intname + " {";
-			for (String k: kvm.keySet())
-				s += k + ": " + kvm.get(k) + ", ";
-			s += "}";
-		}
-		return s;
-	}
-	/** @return массив из {byte[] swcv, long sp} 
-	 * 
-	 */ 
-	public Object[] extrSwcvSp() {
-		assert rawref!=null && !rawref.equals("");
-		int i = rawref.indexOf(TPL_SWCV), j = rawref.indexOf(TPL_SP);
-		assert i>0 && j>i : "URL parsing error for SWCV extraction: " + rawref; 
-		String swcv = rawref.substring(i+TPL_SWCV.length(),i+TPL_SWCV.length()+32);
-		String sp = rawref.substring(j+TPL_SP.length());
-		i = sp.indexOf('&');
-		if (i>0) sp = sp.substring(0,i);
-		Object[] o = new Object[]{UUtil.getBytesUUIDfromString(swcv), Long.parseLong(sp)};
-		return o;
-	}
-}
-class SWCV {
-	private static DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-	
-	long ref = -1;
-	boolean index_me = false; 
-
-	String vendor, caption, name, modify_user, elementTypeId, versionset;
-	byte ws_id[];
-	long sp;
-	boolean is_editable, is_original;
-	char type;
-	Date modify_date;
-	class DependentSWCV {
-		long sp,seqno,ref=-1;
-		byte []dependent_id = null;
-		String dependentName = null;
-		boolean indb=false;
-		DependentSWCV (PiObject po) {
-			ref = -1;
-			assert po.kvm.containsKey("Order") && po.kvm.containsKey("SeqNo") : "DependentSWCV has no good attributes";
-			sp = Long.parseLong(po.kvm.get("Order"));
-			seqno = Long.parseLong(po.kvm.get("SeqNo"));
-			dependent_id = UUtil.getBytesUUIDfromString(po.kvm.get("dependentWK Id"));
-			dependentName = po.kvm.get("dependentWK Name");
-		}
-		public String toString() {
-			return "ref=" + ref + ",guid=" + UUtil.getStringUUIDfromBytes(dependent_id) + ",sp=" + sp +",seqno="+seqno;
-		}
-	}
-	ArrayList<DependentSWCV> deps = null;
-	public String toString() {
-		String s = "SWCV{ref="+ref+",guid=" + UUtil.getStringUUIDfromBytes(ws_id)+",name="
-			+name+" sp="+sp+" versionset="+versionset+","+
-			caption+" "+type+" "+is_editable+"_"+is_original;
-		if (deps!=null) for (DependentSWCV sd:deps) {
-			s += "\n\tdependency: " + sd.toString();
-		}
-		return s;
-	}
-	private boolean is_sapb = false;
-	boolean is_unknown() {return this.ref==-1;}
-	boolean is_sap() {return is_sapb;}
-	SWCV (PiObject po) throws ParseException {
-		vendor = po.kvm.get("Component Vendor");
-		ws_id = UUtil.getBytesUUIDfromString(po.kvm.get("Id"));
-		modify_date	= df.parse(po.kvm.get("ModifyDate"));
-		sp = Long.parseLong(po.kvm.get("Order"));
-		versionset = po.kvm.get("Versionset");
-		elementTypeId = po.kvm.get("Swcv ElementTypeId");
-
-		modify_user = po.kvm.get("ModifyUser");
-		name = po.kvm.get("Name");
-		caption = po.kvm.get("Swcv Caption");
-		type = po.kvm.get("Type").charAt(0);
-		is_editable = Boolean.parseBoolean(po.kvm.get("isEditable"));
-		is_original = Boolean.parseBoolean(po.kvm.get("isOriginal"));
-		is_sapb = "sap.com".equals(vendor);
-	}
-	void addDep (List<PiObject> pd, boolean removeUsed) {
-		deps = deps==null ? new ArrayList<DependentSWCV>(10) : deps;
-		ArrayList<PiObject> todel = null; 
-		for (PiObject po: pd) {
-			DependentSWCV depSWCV = new DependentSWCV(po);
-			byte[] ws_id2 = UUtil.getBytesUUIDfromString(po.kvm.get("Id"));
-			if (UUtil.areEquals(ws_id, ws_id2) && sp==depSWCV.sp) {
-				deps.add(depSWCV);
-				if (removeUsed) {
-					todel = todel==null ? new ArrayList<PiObject>(5) : todel;
-					todel.add(po); // remove once used for more next loops
-				}
-			}
-		}
-		if (removeUsed) for (PiObject po: todel) pd.remove(po);
-		if (deps!=null && deps.size()==0) deps=null; // дабы экономить память. TODO: переписать через временный буфер
-	}
-	void alignDep(ArrayList<SWCV> dict) {
-		assert ref!=-1L : "SWCV isn't in database yet (" + UUtil.getStringUUIDfromBytes(ws_id) + ",sp=" + sp + ")";
-		// проставляет ссылки на swcv_ref
-		if (deps!=null)	for (DependentSWCV d: deps) {
-			d.indb = false;
-			for (SWCV s: dict)
-				if (s.sp==d.sp && UUtil.areEquals(s.ws_id, d.dependent_id)) d.ref = s.ref;
-		}
-	}
-	boolean markDepDb(long dep, long seqno, byte[] depid, String depname) {
-		boolean b = false;
-		if (deps!=null)	for (DependentSWCV d: deps) {
-			b = (d.ref != -1L && d.ref==dep && d.seqno==seqno) ||
-				(d.ref==-1L && UUtil.areEquals(d.dependent_id, depid));
-			if (b && !d.indb) { 
-				d.indb = b;
-				return b;
-			}
-		}
-		return b;
-	}
-	boolean areAllMarked() {
-		boolean b = true;
-		if (deps!=null)	for (DependentSWCV d: deps) b = b && d.indb;
-		return b;
-	}
-	void putDeps(PreparedStatement ins, long session_id) throws SQLException {
-		if (deps!=null)	for (DependentSWCV d: deps) {
-			DUtil.setStatementParams(ins, ref, d.ref!=-1L ? d.ref : null, d.seqno, d.dependent_id, d.dependentName, session_id);
-			ins.addBatch();
-		}
-	}
-}
-
-class ResultAttribute {
-	String internal, caption;
-	int seqno;
-	public ResultAttribute (String internal, String caption, int seqno) {
-		this.internal = internal;
-		this.caption = caption;
-		this.seqno = seqno;
-	}
-}
-
-public class PiEntity implements HTaskListener {
-	public static String SWCV = "workspace", FOLDER="FOLDER";
-
+	}	
 	public String intname, title;
 	public long entity_id;
 	public int seqno;
@@ -246,30 +47,39 @@ public class PiEntity implements HTaskListener {
 		this.entity_id = entity_id;
 		this.host = p;
 	}
-
-	public void finished(HTask h) {
-		SQEntityAttr sq;
-		if (h.ok) {
-			try {
-				sq = PiEntity.parse_ra(h.bis, "result");
-				for (int j=0; j<sq.size; j++)
-					this.attrs.add(new ResultAttribute(sq.matrix[j][0], sq.matrix[j][1], j));
-				ok = true;
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-		} else {
-			h.setListener(this);
-			HUtil.addHTask(h);
+	protected void addAttr(String intname, String caption, int seqno) {
+		ResultAttribute ra = new ResultAttribute(intname,caption, seqno);
+		attrs.add(ra);
+	}
+	protected void addRA(SQEntityAttr sq) {
+		for (int i=0; i<sq.size; i++) {
+			ResultAttribute ra = new ResultAttribute(sq.matrix[i][0], sq.matrix[i][1], i); 
+			attrs.add(ra);
 		}
 	}
-	
-	protected void collectRA(PiHost p) throws MalformedURLException, IOException {
+	public String toString() {
+		return side + "|" + intname;
+	}
+
+	public static SQEntityAttr parse_ra(InputStream is, String n) throws IOException, SAXException {
+		assert is!=null && n!=null : "PiEntity.parse_ra input checks assert";
+		Parser p = new Parser();
+		SQEntityAttr sq = new SQEntityAttr(n);
+		p.setContentHandler(sq);
+		p.parse(new InputSource(is));
+		is.close();
+		return sq;
+	}	
+	protected HTask collectRA(PiHost p) throws MalformedURLException, IOException {
+		String queryDir = "qc=Default+(for+directory+objects)&syncTabL=true&deletedL=B&xmlReleaseL=7.1&types=" + intname + "&action=Refresh+depended+values";
+		String queryRep = "qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&action=Refresh+depended+values";
+
 		HTask h = new HTask("CollectRA("+intname+")", 
 				p.establishPOST(side.url(p.uroot), true), 
-				side.createQueryResultAttributes(intname) );
-		h.setListener(this);
-		HUtil.addHTask(h);
+				side == Side.Repository ? queryRep : 
+					side == Side.Directory? queryDir : 
+						(new RuntimeException("PiEntity: unknown side. Not implemented yet!")).toString() );
+		return h;
 	}
 	@Override
 	public boolean equals(Object o) {
@@ -277,181 +87,364 @@ public class PiEntity implements HTaskListener {
 		return side==e.side && intname.equals(e.intname);
 	}
 
-	private String getQueryPrepareParse1222222222222222() {
-		String s = "";
-		if (side==Side.Repository && intname.equals(SWCV)) {
-			assert false: "This code is not for use already";
-		} else { // достаточно всего трёх таблеток! главное, не ударяться в истерику.
-			s =  "result=RA_XILINK&result=OBJECTID&result=VERSIONID";
-		}
-		return s;
-	}
-	/* simple query handler */
-	static class SQH extends DefaultHandler {
-		boolean td=false, h3=false, table=false, tr=false, th=false, he=false;
-		Attributes aatts=null;
-		String amount=null;
-		int ia=0;
-		String s = "";
-		ArrayList<String> headers = null, row = null;
-		ArrayList<ArrayList<String>> rows = new  ArrayList<ArrayList<String>>(10); 
-		
-		public void startElement(String uri, String name, String qName,	Attributes atts) {
-			h3 = h3 || name.equalsIgnoreCase("h3");
-			table = table || amount!=null && name.equalsIgnoreCase("table");
-			tr = tr || table && name.equalsIgnoreCase("tr");
-			if (name.equalsIgnoreCase("td")) {
-				td = td || tr;
-				aatts = null;
-			}
-			if (tr && td && name.equalsIgnoreCase("a")) {
-				aatts = atts;
-			}
-			if (table && name.equalsIgnoreCase("th")) {
-				th = true;
-				he = true;
-			}
-			if (table && name.equalsIgnoreCase("tr")) {
-				row = new ArrayList<String>(10);
-			}
-		}
-		public void characters (char ch[], int b, int l) {s = new String(ch, b, l);}
-		public void ignorableWhitespace(char ch[], int start, int length) {}
-		public void endElement(String uri, String name, String qName) {
-			if (h3 && name.equalsIgnoreCase("h3") && s.indexOf("Amount")!=-1) {
-				amount = s.trim();
-				ia = Integer.parseInt(amount.split("Amount of objects:")[1].trim());
-				h3 = false;
-			}
-			if (table && tr && th && name.equalsIgnoreCase("th")) {
-				row.add(s.trim());
-				th = false;
-			}
-			if (table && tr && td && name.equalsIgnoreCase("td")) {
-				if (aatts!=null) s=aatts.getValue("href");
-				row.add(s.trim());
-				td = false;
-			}
-			if (table && tr && name.equalsIgnoreCase("tr")) {
-				if (he) 
-					headers = row;
-				else
-					rows.add(row);
-				row = new ArrayList<String>(10);
-				he = false;
-				tr = false;
-			}
-			table = table && !name.equalsIgnoreCase("table");
-		}
-		boolean test() {return ia==rows.size();}
-	}
-	/* simple query: entities and attributes */
-	static class SQEntityAttr extends DefaultHandler {
-		String sname;
-		boolean st=false, opt=false;
-		String[][] matrix = new String[300][2];	// up to 300 items.
-		String optval, opttxt;
-		private int i=0;
-		public int size=-1;
-		public SQEntityAttr(String name) {
-			super();
-			this.sname=name;
-		}
-		public void ignorableWhitespace(char ch[], int start, int length) {}
-		public void startElement(String uri, String name, String qName,	Attributes atts) {
-			String an = atts==null ? null : atts.getValue("name");
-			st = st || (name.equals("select") && sname.equals(an) );
-			if (st && name.equals("option")) {
-				opt = true;
-				optval = atts==null ? null : atts.getValue("value");
-				opttxt = null;
-			} else 
-				opt = false;
-		}
-		public void characters (char ch[], int b, int l) {
-			opttxt = st && opt ? new String(ch,b,l).trim() : null;
-		}
-		public void endElement(String uri, String name, String qName) {
-			if (st && opt && "option".equalsIgnoreCase(name)) {
-				opt = false;
-				matrix[i][0] = optval;
-				matrix[i][1] = opttxt;
-				i++;
-			}
-			if (st && "select".equalsIgnoreCase(name)) {
-				size = i;
-				st = false;
-			}
-		}
-	}
-	public static SQEntityAttr parse_ra(InputStream is, String n) throws IOException, SAXException {
+	// parse given stream to regular table
+	protected static SimpleQueryHandler handleStream(InputStream is) throws IOException, SAXException {
 		Parser p = new Parser();
-		SQEntityAttr sq = new SQEntityAttr(n);
-		p.setContentHandler(sq);
-		p.parse(new InputSource(is));
-		is.close();
-		return sq;
-	}
-
-	public ArrayList<PiObject> parse_index(InputStream is, boolean deleted) 
-	throws IOException, SAXException {
-		// Часто могут идти огромные размеры для парсинга. Лучше переложиться в файл, парсить его 
-		// и заранее знать размеры бедствия
-	    ArrayList<PiObject> rez = null;
-		Parser p = new Parser();
-		SQH sqh = new SQH();
+		SimpleQueryHandler sqh = new SimpleQueryHandler();
 		p.setContentHandler(sqh);
 		p.parse(new InputSource(is));
 		is.close();
-		assert sqh.test();
-		int i=0, a=0;
-	    if (side==Side.Repository && intname.equals(SWCV)) {
-	    	rez = new ArrayList<PiObject>(sqh.ia+1);
-		    for (ArrayList<String> tr: sqh.rows) {
-		    	PiObject po = new PiObject(this,deleted);
-		    	i=0;
-		    	po.kvm = new HashMap<String,String>(sqh.headers.size());
-		    	for (String td: tr) {
-		    		po.kvm.put(sqh.headers.get(i++), td);
-		    	}
-		    	rez.add(po);
-		    	a++;
-		    }
-		    assert a==sqh.ia;
-		    sqh = null;
-	    } else {
-	    	// not SWCV
-	    	rez = new ArrayList<PiObject>(sqh.ia+1);
-		    int iRaw=-1,iOID=-1,iVID=-1;
-		    for (String head: sqh.headers) {
-		    	if ("Raw".equals(head)) 
-		    		iRaw = i;
-		    	else if ("OBJECTID".equals(head))
-		    		iOID = i;
-		    	else if ("VERSIONID".equals(head))
-		    		iVID = i;
-		    	i++;
-			}
-		    if (iRaw < 0 || iOID < 0 || iVID < 0)
-		    	throw new RuntimeException("Either Raw/OID/VID not found");
-		    for (ArrayList<String> tr: sqh.rows) {
-		    	i=0;
-		    	PiObject po = new PiObject(this,deleted);
-				for (String td: tr) {
-					if (i == iRaw)
-						po.rawref = td;
-					else if (i == iOID)
-						po.objectid = UUtil.getBytesUUIDfromString(td);
-					else if (i == iVID)
-						po.versionid = UUtil.getBytesUUIDfromString(td);
-					i++;
-				}
-				rez.add(po);
-				a++;
-			}
-		    assert a==sqh.ia;
-	    }
-	    return rez;
+		assert sqh.test() : "SimpleQueryHandler.test failed at PiEntity";
+		return sqh;
 	}
 
+	public void parse_index(List<SWCV> rez, SimpleQueryHandler sqh) throws ParseException {
+		assert rez!=null && sqh!=null : "PiEntity<SWCV> input check";
+		int a=0, i;
+		HashMap<String,String> kvm;
+	    for (ArrayList<String> tr: sqh.rows) {
+	    	i=0;
+	    	kvm = new HashMap<String,String>(sqh.headers.size());
+	    	for (String td: tr)
+	    		kvm.put(sqh.headers.get(i++), td);
+	    	rez.add(new SWCV(this, kvm));
+	    	a++;
+	    }
+	    assert a==sqh.ia : "Not all given SWCV were parsed";
+	}
+	public void parse_index(List<PiObject> rez, SimpleQueryHandler sqh, boolean deleted) {
+		int i=0, a=0;
+	    int iRaw=-1,iOID=-1,iVID=-1;
+	    for (String head: sqh.headers) {
+	    	if ("Raw".equals(head)) 
+	    		iRaw = i;
+	    	else if ("OBJECTID".equals(head))
+	    		iOID = i;
+	    	else if ("VERSIONID".equals(head))
+	    		iVID = i;
+	    	i++;
+		}
+	    if (iRaw < 0 || iOID < 0 || iVID < 0)
+	    	throw new RuntimeException("Either Raw/OID/VID not found");
+	    for (ArrayList<String> tr: sqh.rows) {
+	    	i=0;
+	    	PiObject po = new PiObject(this,deleted);
+			for (String td: tr) {
+				if (i == iRaw)
+					po.qryref = td;
+				else if (i == iOID)
+					po.objectid = UUtil.getBytesUUIDfromString(td);
+				else if (i == iVID)
+					po.versionid = UUtil.getBytesUUIDfromString(td);
+				i++;
+			}
+			rez.add(po);
+			a++;
+		}
+	    assert a==sqh.ia : "Not all given PiObject were parsed";
+	}
+	HTask makeOnlineHTask (PiHost p, boolean deleted) throws MalformedURLException, IOException {
+		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
+				, qry = "";
+		if (side.equals(Side.Repository) && !deleted)
+			qry = "qc=All+software+components&syncTabL=true&deletedL=N&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+		else if (side.equals(Side.Repository))
+			qry = "qc=All+software+components&syncTabL=true&deletedL=D&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query"; 
+		else if (side.equals(Side.Directory) && !deleted)
+			qry = "qc=Default+%28for+directory+objects%29&syncTabL=true&deletedL=N&xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+		else if (side.equals(Side.Directory))
+			qry = "qc=Default+%28for+directory+objects%29&syncTabL=true&deletedL=D&xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+		else
+			throw new RuntimeException("Unknown logic");
+		
+		HTask h = new HTask(nm, p.establishPOST(side.url(p.uroot), true), qry);
+		return h;
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------
+class PiObject {
+	enum Kind {NULL, UNKNOWN, MODIFIED,};
+	
+	static String TPL_SWCV = "&VC=SWC&SWCGUID=", TPL_SP="&SP=";
+	Kind kind = Kind.NULL;
+	boolean is_dirty = true, deleted, inupdatequeue=false;
+	PiEntity e;
+	String   qryref;
+	byte[]   objectid,versionid;
+	long     refDB=-1, refSWCV=-1;
+	FutureTask<HTask> task = null;
+	PiObject previous = null;		// предыдущий найденный в БД
+	
+	
+	PiObject (){}
+	PiObject (PiEntity e, boolean deleted) {
+		this.e = e;
+		this.deleted = deleted;
+	}
+	PiObject (PiEntity ent, ResultSet rs) throws SQLException {
+		//sql_objver_getall
+		//o.object_ref,o.swcv_ref,o.object_id,o.is_deleted,o.url_ext,v.version_id,v.is_active
+		refDB = rs.getLong(1);
+		refSWCV = rs.getObject(2)==null ? -1 : rs.getLong(2);
+		objectid = rs.getBytes(3);
+		deleted = rs.getLong(4) == 1;
+		qryref = rs.getString(5);
+		versionid = rs.getBytes(6);
+		is_dirty = false;
+		e = ent;
+	}
+	public String toString() {
+		String s;
+		s = qryref!=null && qryref.indexOf("/read/ext")>0 ? qryref.split("/read/ext?")[1] : qryref;
+		s = e.title + "_" + refDB + ":" + refSWCV + (deleted?" DELETED":"") + " {" + UUtil.getStringUUIDfromBytes(objectid) + ", " + UUtil.getStringUUIDfromBytes(versionid) + "} " + s;
+		return s;
+	}
+	public long extrSwcvSp(PiHost p) {
+		assert qryref!=null && !qryref.equals("");
+		int i = qryref.indexOf(TPL_SWCV), j = qryref.indexOf(TPL_SP);
+		assert i>0 && j>i : "URL parsing error for SWCV extraction: " + qryref; 
+		String swcv = qryref.substring(i+TPL_SWCV.length(),i+TPL_SWCV.length()+32);
+		String sp = qryref.substring(j+TPL_SP.length());
+		i = sp.indexOf('&');
+		if (i>0) sp = sp.substring(0,i);
+		long ref = -1;
+		for (SWCV s: p.swcv.values()) {
+//			if ()
+		}
+		Object[] o = new Object[]{UUtil.getBytesUUIDfromString(swcv), Long.parseLong(sp)};
+		return ref;
+	}
+	public int equalAnother(PiObject an) {
+		assert objectid!=null && an!=null && an.objectid!=null : "input check";
+		boolean o=UUtil.areEquals(objectid, an.objectid), v = o && UUtil.areEquals(versionid, an.versionid);
+		if (v)
+			return 2;
+		else if (o)
+			return 1;
+		else
+			return 0;
+	}
+	public void pawtouch() {
+		if (inupdatequeue) return;
+		if (is_dirty) e.host.diffo.addPiObjectUpdateQueue(this);
+	}
+}
+
+class SWCV extends PiObject {
+	private static DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+	// definition query template
+	static String qdef="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=COMPONENT_NAME&result=COMPONENT_VENDOR&result=WS_ID&result=MODIFYDATE&result=MODIFYUSER&result=WS_NAME&result=CAPTION&result=ELEMENTTYPEID&result=NAME&result=VENDOR&result=VERSION&result=SWC_GUID&result=WS_TYPE&result=EDITABLE&result=ORIGINAL&result=ELEMENTTYPEID&result=DEVLINE&result=WS_ORDER&action=Start+query";
+	// dependencies query template
+	static String qdeps="qc=All+software+components&syncTabL=true&deletedL=B&xmlReleaseL=7.1&queryRequestXMLL=&types=workspace&result=DEPTYPE&result=WS_ID&result=DEPWS_ID&result=DEPWS_NAME&result=WS_ORDER&result=SEQNO&result=DEVLINE&action=Start+query";
+	HashMap<String,String> kvm = null;
+
+	boolean index_me = false; 
+//	private static HashMap<Long,SWCV> refcache = new HashMap <Long,SWCV>(100); 
+
+	String vendor, caption, name, modify_user, elementTypeId, versionset;
+	byte ws_id[] = null;
+	long sp;
+	boolean is_editable, is_original;
+	char type;
+	Date modify_date = null;
+	class DependentSWCV {
+		long seqno,refDB=-1L,order=0;
+		byte []dependent_id = null;
+		String dependentName = null;
+		boolean indb=false;
+		DependentSWCV (HashMap<String,String> kvm) {
+			assert kvm!=null : "DependentSWCV(kvm) input failed" ;
+			refDB = -1;
+			assert kvm.containsKey("Order") && kvm.containsKey("SeqNo") : "DependentSWCV has no good attributes";
+			order = Long.parseLong(kvm.get("Order"));
+			seqno = Long.parseLong(kvm.get("SeqNo"));
+			dependent_id = UUtil.getBytesUUIDfromString(kvm.get("dependentWK Id"));
+			dependentName = kvm.get("dependentWK Name");
+		}
+		DependentSWCV (ResultSet rs) throws SQLException {
+			//depswcv_ref,seqno,order,depws_id,depws_name FROM swcvdep WHERE swcv_ref=?1;
+			refDB = rs.getLong(1);
+			seqno = rs.getLong(2);
+			order = rs.getLong(3);
+			dependent_id = rs.getBytes(4);
+			dependentName = rs.getString(5);
+		}
+		public boolean equalDSWCV(DependentSWCV an, SWCV me, SWCV ot) {
+			assert dependent_id!=null && an!=null && an.dependent_id!=null;
+			return UUtil.areEquals(dependent_id, an.dependent_id) && sp==an.order 
+					&& me.versionset.equals(ot.versionset);
+		}
+		public String toString() {
+			return "ref=" + refDB + ",guid=" + UUtil.getStringUUIDfromBytes(dependent_id) + ",sp=" + sp +",seqno="+seqno;
+		}
+	}
+	List<DependentSWCV> deps = null;
+	public String toString() {
+		String s = "SWCV{refdb="+refDB+",guid=" + UUtil.getStringUUIDfromBytes(ws_id)+",name="
+			+name+" sp="+sp+" versionset="+versionset+","+
+			caption+" "+type+" "+is_editable+"_"+is_original;
+		if (deps!=null) for (DependentSWCV sd:deps) {
+			s += "\n\tdependency: " + sd.toString();
+		}
+		return s;
+	}
+	public boolean equalAnother(SWCV an) {
+		assert refDB!=-1L && an!=null;
+		return UUtil.areEquals(ws_id, an.ws_id) && sp==an.sp;
+	}
+	public boolean equalattrSWCV(SWCV an) {
+		assert false;
+		return UUtil.areEquals(ws_id, an.ws_id) && sp==an.sp;
+	}
+	public boolean equalsDep(DependentSWCV dep) {
+		assert refDB!=-1L && dep!=null;
+		return UUtil.areEquals(ws_id, dep.dependent_id) && sp==dep.order;
+	}
+	private boolean is_sapb = false;
+//	boolean is_unknown() {return this.ref==-1;}
+	boolean is_sap() {return is_sapb;}
+
+	SWCV(PiEntity e, HashMap<String,String> kvm) throws ParseException {
+		super(e,false);
+		this.kvm = kvm;
+		vendor = kvm.get("Component Vendor");
+		ws_id = UUtil.getBytesUUIDfromString(kvm.get("Id"));
+		if (kvm.containsKey("ModifyDate")) modify_date = df.parse(kvm.get("ModifyDate"));
+		sp = Long.parseLong(kvm.get("Order"));
+		versionset = kvm.get("Versionset");
+		elementTypeId = kvm.get("Swcv ElementTypeId");
+
+		modify_user = kvm.get("ModifyUser");
+		name = kvm.get("Name");
+		caption = kvm.get("Swcv Caption");
+		if (kvm.containsKey("Type")) type = kvm.get("Type").charAt(0);
+		is_editable = Boolean.parseBoolean(kvm.get("isEditable"));
+		is_original = Boolean.parseBoolean(kvm.get("isOriginal"));
+		is_sapb = "sap.com".equals(vendor);
+		is_dirty = true;
+	}
+	SWCV(PiEntity e, ResultSet rs) throws SQLException {
+		super(e,false);
+		this.kvm = null;
+//		rs: s.swcv_ref,s.vendor,s.ws_id,s.sp,s.modify_date,s.modify_user,s.name,s.caption,\
+//			s.type,s.is_editable,s.is_original,s.elementtypeid,s.versionset,s.index_me
+		refDB = rs.getLong(1); 
+		vendor = rs.getString(2);
+		ws_id = rs.getBytes(3);
+		sp = rs.getLong(4);
+		modify_date = new Date(rs.getLong(5));
+		modify_user = rs.getString(6);
+		name = rs.getString(7);
+		caption = rs.getString(8);
+		type = rs.getString(9).charAt(0);
+		is_editable = rs.getLong(10)==1; 
+		is_original = rs.getLong(11)==1;
+		elementTypeId = rs.getString(12);
+		versionset = rs.getString(13);
+		is_dirty = false;
+//		refcache.put(refDB, this);
+	}
+//	void putCache() {
+//		assert refDB!=-1L;
+//		refcache.put(refDB, this);
+//	}
+//	static SWCV lookup(long ref) {
+//		assert ref!=-1L;
+//		return refcache.get(ref);
+//	}
+	void setInsertFields(PreparedStatement ins) throws SQLException {
+//		ins: host_id,session_id,ws_id,type,vendor,caption,name,sp,
+//			modify_date,modify_user,is_editable,is_original,elementtypeid,versionset,index_me
+		DUtil.setStatementParams(ins, 
+				e.host.host_id,
+				e.host.diffo.session_id,
+				ws_id,
+				type,
+				vendor,
+				caption,
+				name,
+				sp,
+				modify_date,
+				modify_user,
+				is_editable ? 1 : 0,
+				is_original ? 1 : 0,
+				elementTypeId,
+				versionset,
+				index_me ? 1 : 0
+				);
+	}
+	void setInsertBatchDepFields(PreparedStatement insdep) throws SQLException {
+		assert refDB>0 && insdep!=null: "input1 assert|" + refDB + insdep;
+//		insdep: swcv_ref,order,seqno,depws_id,depws_name,session_id
+		for (DependentSWCV dep: deps) {
+			DUtil.setStatementParams(insdep, 
+				refDB,
+				dep.order,
+				dep.seqno,
+				dep.dependent_id,
+				dep.dependentName,
+				e.host.diffo.session_id
+				);
+			insdep.addBatch();
+		}
+	}
+	
+	void setDeps (List<SWCV> ext_dep) {
+		assert ext_dep!=null && ext_dep.size()>0 : "input assert|"+ext_dep;
+		assert deps==null : "non-initialized state";
+		this.deps = new ArrayList<DependentSWCV>(10);
+		List<SWCV> todel = new LinkedList<SWCV>();
+		for (SWCV po: ext_dep) {
+			DependentSWCV depSWCV = new DependentSWCV(po.kvm);
+			byte[] ws_id2 = UUtil.getBytesUUIDfromString(kvm.get("Id"));
+			if (UUtil.areEquals(ws_id, ws_id2) && sp==depSWCV.order && versionset.equals(po.versionset)) {
+				deps.add(depSWCV);
+				todel.add(po);
+			}
+		}
+		for (SWCV t: todel) ext_dep.remove(t);
+	}
+	
+	void setDeps (ResultSet rs) throws SQLException {
+		assert deps==null : "non-initialized state";
+		deps = new ArrayList<DependentSWCV>(10);
+		while (rs.next()) {
+			DependentSWCV depSWCV = new DependentSWCV(rs);
+			deps.add(depSWCV);
+		}
+	}	
+	// 
+//	protected void alignDep(List<SWCV> dict) {
+//		assert ref!=-1L : "SWCV isn't in database yet (" + UUtil.getStringUUIDfromBytes(ws_id) + ",sp=" + sp + ")";
+//		// проставляет ссылки на swcv_ref
+//		if (deps!=null)	for (DependentSWCV d: deps) {
+//			d.indb = false;
+//			for (SWCV s: dict)
+//				if (s.sp==d.sp && UUtil.areEquals(s.ws_id, d.dependent_id)) d.ref = s.ref;
+//		}
+//	}
+//	boolean markDepDb(long dep, long seqno, byte[] depid, String depname) {
+//		boolean b = false;
+//		if (deps!=null)	for (DependentSWCV d: deps) {
+//			b = (d.ref != -1L && d.ref==dep && d.seqno==seqno) ||
+//				(d.ref==-1L && UUtil.areEquals(d.dependent_id, depid));
+//			if (b && !d.indb) { 
+//				d.indb = b;
+//				return b;
+//			}
+//		}
+//		return b;
+//	}
+//	boolean areAllMarked() {
+//		boolean b = true;
+//		if (deps!=null)	for (DependentSWCV d: deps) b = b && d.indb;
+//		return b;
+//	}
+//	void putDeps(PreparedStatement ins, long session_id) throws SQLException {
+//		if (deps!=null)	for (DependentSWCV d: deps) {
+//			DUtil.setStatementParams(ins, ref, d.ref!=-1L ? d.ref : null, d.seqno, d.dependent_id, d.dependentName, session_id);
+//			ins.addBatch();
+//		}
+//	}
 }

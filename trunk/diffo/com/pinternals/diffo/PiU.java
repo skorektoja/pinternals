@@ -2,79 +2,85 @@ package com.pinternals.diffo;
 
 import java.io.IOException;
 import java.sql.SQLException;
-import java.text.ParseException;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 
 import org.xml.sax.SAXException;
 
-class HierRoot{
-	int level;
+interface Hier {
+}
+class HierRoot implements Hier {
+	List<HierSide> sides = new LinkedList<HierSide>();
 	PiHost p = null;
 	Diffo d = null;
-	List<HierSide> children = new LinkedList<HierSide>();
-	HierRoot(){
-		level = 0;
+	HierRoot(Diffo d, PiHost p){
+		this.d = d;
+		this.p = p;
 	}
 	protected HierSide addSide(Side s) {
-		return new HierSide(this, s);
+		HierSide hs = new HierSide(this, s); 
+		sides.add(hs);
+		return hs;
 	}
 }
-class HierSide extends HierRoot {
-	List<HierEnt> children = new LinkedList<HierEnt>();
+class HierSide implements Hier {
+	List<HierEnt> ents = new LinkedList<HierEnt>();
 	HierRoot root;
 	Side side;
-	HierSide(){}
 	HierSide(HierRoot r, Side s) {
-		level = 1;
 		side = s;
 		root = r;
-		r.children.add(this);
 	}
 	protected HierEnt addPiEntity(PiEntity e) {
-		return new HierEnt(this, e);
+		HierEnt h = new HierEnt(this, e);
+		ents.add(h);
+		return h;
 	}
 }
-class HierEnt extends HierSide {
+class HierEnt implements Hier {
+	List<PiObject> objs = null;
 	HierSide side;
 	PiEntity ent;
-	HierEnt(){}
 	HierEnt(HierSide s, PiEntity e) {
-		level = 2;
 		side = s;
 		ent = e;
-		side.children.add(this);
 	}
-	void getObjectsIndex() throws IOException, ParseException, SQLException, SAXException, InterruptedException {
+	void getObjectsIndex() throws IOException, SAXException, InterruptedException, ExecutionException, SQLException {
+		assert side!=null && ent!=null : "Either side or entity are empty";
+		PiHost p = ent.host;
+		Diffo d = side.root.d;
 		if (side.side==Side.Repository && ent.intname.equals("workspace")) {
-//			d.__refreshSWCV(p, ent);
-
+			objs = new ArrayList<PiObject>(100);
+			for (SWCV s: p.swcv.values()) objs.add(s);
+		} else if (side.side==Side.Directory && ent.intname.equals("AgencySchemObj")) {
+			// ignore
+		} else if ( (side.side==Side.Directory && ent.intname.equals("MappingRelation")) 
+				|| (side.side==Side.Repository && ent.intname.equals("XI_TRAFO"))
+				) {
+			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
+			act.addAll(del);
+			del = null;
+			List<PiObject> db = d.__getIndexDb(p, ent);
+			objs = d.mergeObjects(p, ent, db, act);
+			// ignore
+		} else {
+//			System.out.println("Ask index for " + ent);
+//			List<PiObject> del = p.askIndexOnline(ent, false);
+//			objs = p.askIndexOnline(ent, true);
 		}
 	}
 }
-class HierObj extends HierEnt {
+class HierObj implements Hier {
 	HierEnt ent;
-	Object obj;
-	HierObj(){}
-	HierObj(HierEnt e, Object o) {
-		level = 3;
-		ent = e;
-		obj = o;
-		ent.children.add(this);
-	}
 }
-
-
-
-public class PiU implements HTaskListener, Runnable {
+public class PiU implements Callable<PiObject> {
 	@Override
-	public void finished(HTask h) {
-		
-	}
-
-	@Override
-	public void run() {
-		
+	public PiObject call() throws Exception {
+		// TODO Auto-generated method stub
+		return null;
 	}
 }
 

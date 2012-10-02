@@ -1,22 +1,20 @@
 package com.pinternals.diffo;
-import java.io.IOException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
 
-import com.sap.lcr.api.cimclient.CIMClient;
-import com.sap.lcr.api.cimclient.CIMOMClient;
-import com.sap.lcr.api.cimclient.HttpRequestSender;
-import com.sap.lcr.api.cimclient.LcrException;
-import com.sap.lcr.api.cimname.CIMObjectReference;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystem;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystemAccessor;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystemGuid;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystemGuidAccessor;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystemPath;
-import com.sap.lcr.api.sapmodel.SAP_BusinessSystemPathAccessor;
+
+//import com.sap.lcr.api.cimclient.CIMClient;
+//import com.sap.lcr.api.cimclient.CIMOMClient;
+//import com.sap.lcr.api.cimclient.HttpRequestSender;
+//import com.sap.lcr.api.cimclient.LcrException;
+//import com.sap.lcr.api.cimname.CIMObjectReference;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystem;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystemAccessor;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystemGuid;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystemGuidAccessor;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystemPath;
+//import com.sap.lcr.api.sapmodel.SAP_BusinessSystemPathAccessor;
 
 public class SLD {
+/*
 	protected static ArrayList<PiObject> getObjects(PiEntity e, URL u, String uname, String passwd)
 	throws IOException {
 		HttpRequestSender requestSender = new HttpRequestSender(u, uname, passwd);
@@ -124,4 +122,5 @@ public class SLD {
 			
 		}
 	}
+	*/
 }

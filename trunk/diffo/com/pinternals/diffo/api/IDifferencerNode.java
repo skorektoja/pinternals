@@ -28,5 +28,5 @@ public interface IDifferencerNode {
 	public int hashCode(); //for structure comparison operations 
 	public String toString(); //need for Eclipse tree show, blin...
 	public boolean refresh(IDiffo diffo, boolean withChildren)
-	throws MalformedURLException, SQLException, IOException, SAXException, ParseException; //fullFarsch for true
+	throws MalformedURLException, SQLException, IOException, SAXException, ParseException, InterruptedException;
 }

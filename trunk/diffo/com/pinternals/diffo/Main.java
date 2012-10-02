@@ -6,7 +6,9 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.sql.SQLException;
 import java.text.ParseException;
-import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.LogManager;
 
 import org.apache.commons.cli.CommandLine;
@@ -43,7 +45,7 @@ public class Main {
 					PiHost xid = d.addPiHost("XID", "http://tralala");
 					PiHost xiq = d.addPiHost("XIQ", "http://blahbla");
 
-					ArrayList<DiffItem> l, r;
+					List<DiffItem> l, r;
 					d.refreshMeta(xid);
 					d.refreshMeta(xiq);
 
@@ -121,11 +123,11 @@ public class Main {
 
 					PiHost xid = d.addPiHost("DEV", "http://host_dev:50000");
 					xid.setUserCredentials("pireport", "password");
-					d.fullFarsch(xid);
+//					d.fullFarsch(xid);
 
 					PiHost xiq = d.addPiHost("QAS", "http://host_qas:50000");
 					xiq.setUserCredentials("pireport", "password");
-					d.fullFarsch(xiq);
+//					d.fullFarsch(xiq);
 					
 					d.finish_session();
 				}
@@ -140,9 +142,9 @@ public class Main {
 	}
 	
 	private static void transportCheck(Diffo d, PiHost p) 
-	throws SQLException, IOException, SAXException, ParseException, InterruptedException {
+	throws SQLException, IOException, SAXException, ParseException, InterruptedException, ExecutionException {
 		d.refreshMeta(p);
-		ArrayList<DiffItem> al;
+		List<DiffItem> al;
 		al = d.list(p, Side.Repository, "XI_TRAFO");
 		al.addAll(d.list(p, Side.Repository, "MAPPING"));
 		al = d.list(p, Side.Directory, "MappingRelation");
@@ -262,19 +264,39 @@ public class Main {
 					pih = d.addPiHost(sid, xihost);
 					pih.setUserCredentials(uname, passwd);
 				} else if ("refresh".equals(a0)) {
-					d.fullFarsch(pih);
-				} else if ("refreshMeta".equals(a0)) {
+					assert pih!=null : "addHost wasn't called before refresh";
+					HierRoot root = new HierRoot(d,pih);
 					d.refreshMeta(pih);
-				} else if ("refreshSWCV".equals(a0)) {
-					d.refreshSWCV(pih);
-				} else if ("askIndexRepository".equals(a0)) {
-					d.askIndexRepository(pih);
-					d.tickIndexRequestQueue(true);
-				} else if ("askIndexDirectory".equals(a0)) {
-					d.askIndexDirectory(pih);
-					d.tickIndexRequestQueue(true);
-				} else if ("payloads".equals(a0)) {
-					pih.download();
+					d.__refreshSWCV(pih, false);
+
+//					System.out.println("+++++ Repository");
+//					HierSide hrep = root.addSide(Side.Repository);
+					System.out.println("+++++ Directory");
+					HierSide hdir = root.addSide(Side.Directory);
+
+					for (HierSide s: root.sides) 
+						for (PiEntity v: pih.entities.values())
+							if (v.side == s.side) {
+								HierEnt he = s.addPiEntity(v);
+								he.getObjectsIndex();
+								if (he.objs!=null) for (PiObject o: he.objs) {
+									o.pawtouch();
+								}
+							}
+					d.loopUpdateQueue();
+					
+					
+//				} else if ("refreshMeta".equals(a0)) {
+//					d.refreshMeta(pih);
+//				} else if ("refreshSWCV".equals(a0)) {
+//				} else if ("askIndexRepository".equals(a0)) {
+//					d.askIndexRepository(pih);
+//					d.tickIndexRequestQueue(true);
+//				} else if ("askIndexDirectory".equals(a0)) {
+//					d.askIndexDirectory(pih);
+//					d.tickIndexRequestQueue(true);
+//				} else if ("payloads".equals(a0)) {
+//					pih.download();
 				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
 					String s1, s2[];
 					s1 = a0.substring("refresh(".length());
