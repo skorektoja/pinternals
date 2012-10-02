@@ -1132,7 +1132,8 @@ public class Diffo implements IDiffo, Cloneable {
 				, chnnver = prepareStatement("sql_ver_ins22")
 				;
 		HashSet<byte[]> ud1 = new HashSet<byte[]>();
-		long z=0;
+		long z=0, zz=0;
+		log.info("Objects in update queue: " + updateQueue.size());
 		for (PiObject o: updateQueue) {
 			assert o.kind!=Kind.NULL  : "PiObject w/o need of change was added in update queue " + o; 
 			assert o.inupdatequeue : "PiObject is already in update queue";
@@ -1189,6 +1190,7 @@ public class Diffo implements IDiffo, Cloneable {
 					break;
 			}
 			if (z>100) {
+				zz += z;
 				// Уррра коротким и максимально пакетным транзакциям!
 				DUtil.lock();
 				DUtil.executeBatch(insobj);
@@ -1198,6 +1200,7 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.executeBatch(chnnver);
 				DUtil.unlock(conn);
 				z=0;
+				log.info("Objects handled so far: " + zz);
 			}
 		}
 		// Уррра коротким и максимально пакетным транзакциям!
@@ -1208,6 +1211,8 @@ public class Diffo implements IDiffo, Cloneable {
 		DUtil.executeBatch(chnpver);
 		DUtil.executeBatch(chnnver);
 		DUtil.unlock(conn);
+		zz += z;
+		log.info("Objects handled total: " + zz);
 		
 	}
 	
