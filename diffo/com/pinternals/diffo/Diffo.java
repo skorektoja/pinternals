@@ -1157,7 +1157,6 @@ public class Diffo implements IDiffo, Cloneable {
 							o.e.host.host_id, o.e.entity_id, o.objectid, o.refSWCVsql(), o.versionid, session_id);
 					insver.addBatch();
 					ud1.add(o.objectid);
-					System.out.println("++" + o);
 					break;
 				case MODIFIED:
 					assert o.previous!=null : "Reference to previous object isn't set";

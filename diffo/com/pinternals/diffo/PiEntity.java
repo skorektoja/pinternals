@@ -204,6 +204,8 @@ class PiObject {
 		return s;
 	}
 	public long extrSwcvSp(PiHost p) {
+		if (e.side!=Side.Repository) return -1L;
+		
 		assert qryref!=null && !qryref.equals("");
 		int i = qryref.indexOf(TPL_SWCV), j = qryref.indexOf(TPL_SP);
 		assert i>0 && j>i : "URL parsing error for SWCV extraction: " + qryref; 
