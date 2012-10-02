@@ -1189,7 +1189,7 @@ public class Diffo implements IDiffo, Cloneable {
 				default:
 					break;
 			}
-			if (z>100) {
+			if (z>499) {
 				zz += z;
 				// Уррра коротким и максимально пакетным транзакциям!
 				DUtil.lock();
@@ -1200,7 +1200,7 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.executeBatch(chnnver);
 				DUtil.unlock(conn);
 				z=0;
-				log.info("Objects handled so far: " + zz);
+				log.info("Objects handled so far: " + zz + ", total amount: " + updateQueue.size());
 			}
 		}
 		// Уррра коротким и максимально пакетным транзакциям!

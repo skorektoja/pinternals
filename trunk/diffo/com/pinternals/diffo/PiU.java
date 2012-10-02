@@ -65,6 +65,7 @@ class HierEnt implements Hier {
 				|| ent.intname.equals("MAP_HELPER")
 				|| ent.intname.startsWith("aris")
 				|| ent.intname.startsWith("BO_")
+				|| ent.intname.equals("idoc")
 				) ) {
 			// ignore
 		} else if ( (side.side==Side.Directory ) 
@@ -78,7 +79,10 @@ class HierEnt implements Hier {
 			List<PiObject> db = d.__getIndexDb(p, ent);
 			objs = d.mergeObjects(p, ent, db, act);
 			// ignore
-		} else {
+		} else if ( true 
+//				|| ent.intname.equals("processstep") 
+//				|| ent.intname.equals("rfc") 
+				)  {
 			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
 			act.addAll(del);
 			del = null;
