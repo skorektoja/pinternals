@@ -1087,31 +1087,33 @@ public class Diffo implements IDiffo, Cloneable {
 		List<PiObject> mrgd = new ArrayList<PiObject>(1000);
 		for (PiObject o: online) {
 			int r = -1;
-			PiObject same = null;
+			PiObject sameO = null, sameV = null;
 			for (PiObject d: db) {
 				r = o.equalAnother(d);
+				sameO = r==2 ? d : sameO;
+				sameV = r==1 ? d : sameV;
 				if (r==0) 
 					continue;
-				same = d;
-				break;
+				else if (r==2)
+					break;
 			}
-			if (same==null) {
+			if (sameV==null && sameO==null) {
 				// не найдено -- добавляем из онлайна
 				o.kind = Kind.UNKNOWN;
 				o.is_dirty = true;
 				mrgd.add(o);
-			} else if (r==2) {
+			} else if (sameO!=null) {
 				// нашли идентичный -- добавляем из базы
-				same.kind = Kind.NULL;
-				same.is_dirty = false;
-				mrgd.add(same);
-			} else if (r==1) {
+				sameO.kind = Kind.NULL;
+				sameO.is_dirty = false;
+				mrgd.add(sameO);
+			} else if (sameV!=null) {
 				// объект в онлайне другой версии
-				o.previous = same;
+				o.previous = sameV;
 				o.kind = Kind.MODIFIED;
 				o.is_dirty = true;
 				mrgd.add(o);
-			}
+			} 
 		}
 		return mrgd;
 	}
@@ -1129,9 +1131,10 @@ public class Diffo implements IDiffo, Cloneable {
 				
 				, chnobj = prepareStatement("sql_obj_upd2")
 				, chnpver = prepareStatement("sql_ver_upd21")
-				, chnnver = prepareStatement("sql_ver_ins22")
+				, chninsver = prepareStatement("sql_ver_ins22")
 				;
 		HashSet<byte[]> ud1 = new HashSet<byte[]>();
+		final Long l1 = new Long(1), l0 = new Long(0);
 		long z=0, zz=0;
 		log.info("Objects in update queue: " + updateQueue.size());
 		for (PiObject o: updateQueue) {
@@ -1142,13 +1145,13 @@ public class Diffo implements IDiffo, Cloneable {
 					assert (!ud1.contains(o.objectid)) : 
 						"CONFLICT: duplicate " + o.qryref + "\t" + UUtil.getStringUUIDfromBytes(o.objectid);
 
-					if (o.e.side==Side.Repository) {
-						o.refSWCV = o.extrSwcvSp(o.e.host);
-						if (o.refSWCV==-1L) {
-							log.severe("New detected repository object has unknown no reference to SWCV " + o);
-							assert false: "New detected repository object has unknown no reference to SWCV " + o;
-						}
-					}
+//					if (o.e.side==Side.Repository) {
+//						o.refSWCV = o.extrSwcvSp(o.e.host);
+//						if (o.refSWCV==-1L) {
+//							log.severe("New detected repository object has unknown no reference to SWCV " + o);
+//							assert false: "New detected repository object has unknown no reference to SWCV " + o;
+//						}
+//					}
 					DUtil.setStatementParams(insobj, 
 							o.e.host.host_id, 
 							session_id,
@@ -1156,7 +1159,7 @@ public class Diffo implements IDiffo, Cloneable {
 							o.objectid,
 							o.e.entity_id,
 							o.qryref,
-							o.deleted ? 1 : 0 );
+							o.deleted ? l1 : l0 );
 					insobj.addBatch();
 					DUtil.setStatementParams(insver, 
 							o.e.host.host_id, o.e.entity_id, o.objectid, o.refSWCVsql(), o.versionid, session_id);
@@ -1165,14 +1168,19 @@ public class Diffo implements IDiffo, Cloneable {
 					z++;
 					break;
 				case MODIFIED:
+//					assert false: "DEBUG: is modified=" + o;
+				
 					assert o.previous!=null : "Reference to previous object isn't set";
-					if (o.e.side==Side.Repository) {
-						o.refSWCV = o.extrSwcvSp(o.e.host);
-						if (o.refSWCV==-1L) {
-							log.severe("New detected repository object has unknown no reference to SWCV " + o);
-							assert false: "New detected repository object has unknown no reference to SWCV " + o;
-						}
-					}
+//					if (o.e.side==Side.Repository) {
+//						o.refSWCV = o.extrSwcvSp(o.e.host);
+//						if (o.refSWCV==-1L) {
+//							log.severe("New detected repository object has unknown no reference to SWCV " + o);
+//							assert false: "New detected repository object has unknown no reference to SWCV " + o;
+//						}
+//					}
+					assert o.previous.refSWCV == o.refSWCV : 
+						"refSWCV changed from previous state. Was " + o.previous.refSWCV + " now is " + o.refSWCV + ", object " + o;
+
 					log.info("Attempt to add object " + o);
 					// удаляем объект если не был удалён
 					if (o.deleted!=o.previous.deleted) {
@@ -1180,16 +1188,16 @@ public class Diffo implements IDiffo, Cloneable {
 						chnobj.addBatch();
 					}
 					// маркируем версию как неактивную
-					DUtil.setStatementParams(chnpver, o.previous.refDB, o.previous.versionid, 0);
+					DUtil.setStatementParams(chnpver, o.previous.refDB, o.previous.versionid, l0);
 					chnpver.addBatch();
 					// добавляем новую версию
-					DUtil.setStatementParams(chnnver, o.previous.refDB, o.versionid, session_id, 1);
-					chnnver.addBatch();
+					DUtil.setStatementParams(chninsver, o.previous.refDB, o.versionid, session_id, l1);
+					chninsver.addBatch();
 					z++;
 				default:
 					break;
 			}
-			if (z>499) {
+			if (z>999) {
 				zz += z;
 				// Уррра коротким и максимально пакетным транзакциям!
 				DUtil.lock();
@@ -1197,7 +1205,7 @@ public class Diffo implements IDiffo, Cloneable {
 				DUtil.executeBatch(insver);
 				DUtil.executeBatch(chnobj);
 				DUtil.executeBatch(chnpver);
-				DUtil.executeBatch(chnnver);
+				DUtil.executeBatch(chninsver);
 				DUtil.unlock(conn);
 				z=0;
 				log.info("Objects handled so far: " + zz + ", total amount: " + updateQueue.size());
@@ -1209,7 +1217,7 @@ public class Diffo implements IDiffo, Cloneable {
 		DUtil.executeBatch(insver);
 		DUtil.executeBatch(chnobj);
 		DUtil.executeBatch(chnpver);
-		DUtil.executeBatch(chnnver);
+		DUtil.executeBatch(chninsver);
 		DUtil.unlock(conn);
 		zz += z;
 		log.info("Objects handled total: " + zz);
