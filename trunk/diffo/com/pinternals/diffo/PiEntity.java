@@ -138,6 +138,9 @@ public class PiEntity {
 					po.versionid = UUtil.getBytesUUIDfromString(td);
 				i++;
 			}
+			if (side==Side.Repository) {
+				po.refSWCV = po.extrSwcvSp(host);
+			}
 			rez.add(po);
 			a++;
 		}
@@ -145,11 +148,12 @@ public class PiEntity {
 	}
 	HTask makeOnlineHTask (PiHost p, boolean deleted) throws MalformedURLException, IOException {
 		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
-				, qry = "";
+				, qry = "", sync = "syncTabL=true&";
+		if (intname.startsWith("ifm")) sync="";
 		if (side.equals(Side.Repository) && !deleted)
-			qry = "qc=All+software+components&syncTabL=true&deletedL=N&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+			qry = "qc=All+software+components&" + sync + "deletedL=N&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
 		else if (side.equals(Side.Repository))
-			qry = "qc=All+software+components&syncTabL=true&deletedL=D&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query"; 
+			qry = "qc=All+software+components&" + sync + "deletedL=D&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query"; 
 		else if (side.equals(Side.Directory) && !deleted)
 			qry = "qc=Default+%28for+directory+objects%29&syncTabL=true&deletedL=N&xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
 		else if (side.equals(Side.Directory))
@@ -189,7 +193,7 @@ class PiObject {
 		//sql_objver_getall
 		//o.object_ref,o.swcv_ref,o.object_id,o.is_deleted,o.url_ext,v.version_id,v.is_active
 		refDB = rs.getLong(1);
-		refSWCV = rs.getObject(2)==null ? -1 : rs.getLong(2);
+		refSWCV = rs.getObject(2)==null ? -1L : rs.getLong(2);
 		objectid = rs.getBytes(3);
 		deleted = rs.getLong(4) == 1;
 		qryref = rs.getString(5);
@@ -227,7 +231,7 @@ class PiObject {
 	}
 	public int equalAnother(PiObject an) {
 		assert objectid!=null && an!=null && an.objectid!=null : "input check";
-		boolean o=UUtil.areEquals(objectid, an.objectid), v = o && UUtil.areEquals(versionid, an.versionid);
+		boolean o= refSWCV==an.refSWCV && UUtil.areEquals(objectid, an.objectid), v = o && UUtil.areEquals(versionid, an.versionid);
 		if (v)
 			return 2; // objectid и versionid совпадают
 		else if (o)

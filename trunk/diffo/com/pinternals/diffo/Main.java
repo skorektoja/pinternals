@@ -276,8 +276,8 @@ public class Main {
 
 					System.out.println("+++++ Repository");
 					HierSide hrep = root.addSide(Side.Repository);
-					System.out.println("+++++ Directory");
-					HierSide hdir = root.addSide(Side.Directory);
+//					System.out.println("+++++ Directory");
+//					HierSide hdir = root.addSide(Side.Directory);
 
 					for (HierSide s: root.sides) 
 						for (PiEntity v: pih.entities.values())
