@@ -269,8 +269,8 @@ public class Main {
 					d.refreshMeta(pih);
 					d.__refreshSWCV(pih, false);
 
-//					System.out.println("+++++ Repository");
-//					HierSide hrep = root.addSide(Side.Repository);
+					System.out.println("+++++ Repository");
+					HierSide hrep = root.addSide(Side.Repository);
 					System.out.println("+++++ Directory");
 					HierSide hdir = root.addSide(Side.Directory);
 

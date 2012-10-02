@@ -175,7 +175,10 @@ class PiObject {
 	long     refDB=-1, refSWCV=-1;
 	FutureTask<HTask> task = null;
 	PiObject previous = null;		// предыдущий найденный в БД
-	
+
+	Long refSWCVsql() {
+		return refSWCV!=-1L ? refSWCV : null;
+	}
 	
 	PiObject (){}
 	PiObject (PiEntity e, boolean deleted) {
@@ -204,26 +207,31 @@ class PiObject {
 		assert qryref!=null && !qryref.equals("");
 		int i = qryref.indexOf(TPL_SWCV), j = qryref.indexOf(TPL_SP);
 		assert i>0 && j>i : "URL parsing error for SWCV extraction: " + qryref; 
-		String swcv = qryref.substring(i+TPL_SWCV.length(),i+TPL_SWCV.length()+32);
-		String sp = qryref.substring(j+TPL_SP.length());
-		i = sp.indexOf('&');
-		if (i>0) sp = sp.substring(0,i);
+		String tswcv = qryref.substring(i+TPL_SWCV.length(),i+TPL_SWCV.length()+32);
+		String tsp = qryref.substring(j+TPL_SP.length());
+		i = tsp.indexOf('&');
+		if (i>0) tsp = tsp.substring(0,i);
+		
+		byte swcvid[] = UUtil.getBytesUUIDfromString(tswcv);
+		long sp = Long.parseLong(tsp);
 		long ref = -1;
 		for (SWCV s: p.swcv.values()) {
-//			if ()
+			if ((UUtil.areEquals(swcvid, s.ws_id)) && sp==s.sp) {
+				return s.refDB;
+			} 
 		}
-		Object[] o = new Object[]{UUtil.getBytesUUIDfromString(swcv), Long.parseLong(sp)};
-		return ref;
+//		Object[] o = new Object[]{UUtil.getBytesUUIDfromString(swcv), Long.parseLong(sp)};
+		return -1L;
 	}
 	public int equalAnother(PiObject an) {
 		assert objectid!=null && an!=null && an.objectid!=null : "input check";
 		boolean o=UUtil.areEquals(objectid, an.objectid), v = o && UUtil.areEquals(versionid, an.versionid);
 		if (v)
-			return 2;
+			return 2; // objectid и versionid совпадают
 		else if (o)
-			return 1;
+			return 1; // objectid совпадает, versionid нет
 		else
-			return 0;
+			return 0; // объект не найден
 	}
 	public void pawtouch() {
 		if (inupdatequeue) return;

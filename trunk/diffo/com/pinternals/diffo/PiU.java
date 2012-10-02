@@ -55,7 +55,15 @@ class HierEnt implements Hier {
 		if (side.side==Side.Repository && ent.intname.equals("workspace")) {
 			objs = new ArrayList<PiObject>(100);
 			for (SWCV s: p.swcv.values()) objs.add(s);
-		} else if (side.side==Side.Directory && ent.intname.equals("AgencySchemObj")) {
+		} else if (side.side==Side.Directory && (
+				ent.intname.equals("AgencySchemObj") 
+				|| false
+				) ) { 
+			// ignore
+		} else if (side.side==Side.Repository && ( 
+				ent.intname.equals("ifmopmess") 
+				|| ent.intname.equals("MAP_HELPER")
+				) ) {
 			// ignore
 		} else if ( (side.side==Side.Directory && ent.intname.equals("MappingRelation")) 
 				|| (side.side==Side.Repository && ent.intname.equals("XI_TRAFO"))
@@ -67,9 +75,11 @@ class HierEnt implements Hier {
 			objs = d.mergeObjects(p, ent, db, act);
 			// ignore
 		} else {
-//			System.out.println("Ask index for " + ent);
-//			List<PiObject> del = p.askIndexOnline(ent, false);
-//			objs = p.askIndexOnline(ent, true);
+			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
+			act.addAll(del);
+			del = null;
+			List<PiObject> db = d.__getIndexDb(p, ent);
+			objs = d.mergeObjects(p, ent, db, act);
 		}
 	}
 }
