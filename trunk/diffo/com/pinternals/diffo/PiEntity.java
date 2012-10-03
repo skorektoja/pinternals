@@ -23,6 +23,7 @@ import org.xml.sax.SAXException;
 
 
 public class PiEntity {
+	public List<PiObject> updateQueue = new LinkedList<PiObject>();
 	private static Logger log = Logger.getLogger(PiEntity.class.getName());
 	class ResultAttribute {
 		String internal, caption;
@@ -59,16 +60,20 @@ public class PiEntity {
 		} else 
 			this.is_indexed = is_indexed;
 	}
-	protected void setLastInfo(Long minDT1, Long affected, String session_close_dt) {
-		lastDtFrom = minDT1;
-		if (minDT1!=null)
-			log.info("There was previous query for " + this + " minDT=" + lastDtFrom + " affected=" + affected + " session_close_dt=" + session_close_dt);
+	protected void setLastInfo(Long minDT1, Long affected) {
+		if (affected!=null && affected.longValue()>0)
+			lastDtFrom = minDT1;
 		else
-			log.info("There was no previous query for " + this );
+			lastDtFrom = null;
 	}
 	synchronized protected void incAffected() {
 		affected++;
 	}
+	synchronized public void addUpdateQueue(List<PiObject> coming) {
+		if (updateQueue==null) updateQueue = new LinkedList<PiObject>();
+		updateQueue.addAll(coming);
+	}
+	
 	protected void addAttr(String intname, String caption, int seqno) {
 		ResultAttribute ra = new ResultAttribute(intname,caption, seqno);
 		attrs.add(ra);

@@ -21,7 +21,6 @@ public class HUtil {
 	static int limit;
 	static BlockingQueue<Runnable> q = null;
 	static ThreadPoolExecutor ex = null;
-//	static private boolean shutdown;
 
 	public HUtil() {
 		this(10);
@@ -29,20 +28,17 @@ public class HUtil {
 	public HUtil(int threads) {
 		limit = threads;
 		q = new ArrayBlockingQueue<Runnable>(limit+2000);
-//		shutdown = false;
-		log.config("Registered HUtil, maxthreads=" + limit);
+		log.config(DUtil.format("HUtil01",limit));
 		ex = new ThreadPoolExecutor(limit, limit+5, 5, TimeUnit.SECONDS, q);
 	}
 	public static void shutdown() {
+		log.config(DUtil.format("HUtil02"));
 		ex.shutdown();
 	}
 	static public FutureTask<HTask> addHTask(HTask h)  {
-//		assert incoming!=null : "Empty incoming queue. 'new HUtil()' was missed";
-//		assert !incoming.contains(h) : "Attempt to insert already existed HTask with name=" + h.name;
-//		Thread t = new Thread(h);
-//		t.setName(h.name);
+		if (log.isLoggable(Level.FINE))
+			log.fine(DUtil.format("HUtil03addHTask", h.name));
 		h.ok = false;
-		
 		FutureTask<HTask> f = new FutureTask<HTask>(h);
 		int i=0;
 		while (ex.getPoolSize() < 10 && i++<10)
@@ -52,8 +48,6 @@ public class HUtil {
 				break;
 			}
 		ex.execute(f);
-//		incoming.add(t);
-		if (log.isLoggable(Level.FINEST)) log.config("HUtil.addHTask for new task name=" + h.name + " URL:" + h.hc.getURL().toExternalForm());
 		return f;
 	}
 }
@@ -83,8 +77,8 @@ class HTask implements Callable<HTask> {
 	void connect() {
 		assert hc != null : "Null HttpURLConnection for HTask";
 		ok = false;
-		if (log.isLoggable(Level.FINEST)) 
-			log.finest("HTask.connect(" + attempts + ") hash=" + this.hashCode());
+		if (log.isLoggable(Level.FINE))
+			log.fine(DUtil.format("HTask04connect", name, hc.getURL().toExternalForm()));
 		rc = -1;
 		try {
 			if ("POST".equals(method))
@@ -101,8 +95,7 @@ class HTask implements Callable<HTask> {
 		ByteArrayOutputStream a = null;
 		File flg = new File("htask_" + name + "." + hashCode() + ".html");
 		PrintStream fos = null;
-		if (log.isLoggable(Level.FINE)) {
-			log.fine("HTask.run(" + hc.getURL().toExternalForm() + ") " + method + " hash=" + this.hashCode());
+		if (log.isLoggable(Level.FINEST)) {
 			try { 
 				flg.createNewFile();
 				fos = new PrintStream(flg);
@@ -114,10 +107,9 @@ class HTask implements Callable<HTask> {
 		}
 		connect();
 		if (ok) {
-			if (log.isLoggable(Level.FINE))
-				log.fine("HTask.run( " + this.hashCode() + " ) ok");
-			a = new ByteArrayOutputStream(300000); //hc.getContentLength() < 100 ? 300000 : hc.getContentLength());
-			
+			if (log.isLoggable(Level.CONFIG))
+				log.config(DUtil.format("HTask05call", name));
+			a = new ByteArrayOutputStream(1024);
 			try {
 				int i = hc.getInputStream().read();
 				while (i!=-1) {
@@ -125,22 +117,28 @@ class HTask implements Callable<HTask> {
 					if (fos!=null) fos.write(i);
 					i = hc.getInputStream().read();
 				}
-//				System.out.println("HTask run: " + name + " read OK bytes:" + a.size());
 			} catch (IOException ex) {
 				ok = false;
-				ex.printStackTrace();
+				log.throwing(HTask.class.getCanonicalName(), "call", ex);
 			}
 		} else {
-			  
+			log.severe(DUtil.format("HTask06call", name, rc));
+			a = new ByteArrayOutputStream(1024);
+			try {
+				int i = hc.getErrorStream().read();
+				while (i!=-1) {
+					a.write(i);
+					if (fos!=null) fos.write(i);
+					i = hc.getErrorStream().read();
+				}
+			} catch (IOException ex) {
+				log.throwing(HTask.class.getCanonicalName(), "call", ex);
+			}
 		}
 		if (fos!=null) fos.close();
 		hc.disconnect();
-		if (ok) {
-			bis = new ByteArrayInputStream(a.toByteArray());
-			if (log.isLoggable(Level.FINE))
-				log.fine("HTask.run( " + hc.getURL().toExternalForm() + " " + method + " " + post + ") ok, bytes read: " + a.toByteArray().length);
-		} else
-			bis = null;
+		
+		bis = new ByteArrayInputStream(a.toByteArray());
 		return this;
 	}
 }

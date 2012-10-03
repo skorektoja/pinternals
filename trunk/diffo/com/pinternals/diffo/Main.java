@@ -252,10 +252,10 @@ public class Main {
 					if (started) continue;
 					b = d.opendb() && (d.isDbExist() || d.createdb() && d.validatedb());
 					started = b && d.start_session();
-					if (started)
-						System.out.println("Session " + d.session_id + " started OK");
-					else
-						System.err.println("Can't start session. Database was opened/created: " + b);
+//					if (started)
+//						System.out.println("Session " + d.session_id + " started OK");
+//					else
+//						System.err.println("Can't start session. Database was opened/created: " + b);
 				} else if ("finish".equals(a0)) {
 					if (!started) continue;
 					d.finish_session();
@@ -265,15 +265,18 @@ public class Main {
 				} else if ("addHost".equals(a0)) {
 					pih = d.addPiHost(sid, xihost);
 					pih.setUserCredentials(uname, passwd);
+				} else if ("refreshMinimum".equals(a0)) {
+					assert pih!=null : "addHost wasn't called before refresh";
+					root = root==null ? new HierRoot(d,pih) : root;
+					d.refreshMeta(pih);
+					d.__refreshSWCV(pih, false);
 				} else if ("refresh".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
 					root = root==null ? new HierRoot(d,pih) : root;
 					d.refreshMeta(pih);
 					d.__refreshSWCV(pih, false);
 
-					System.out.println("+++++ Repository");
 					hrep = root.addSide(Side.Repository);
-					System.out.println("+++++ Directory");
 					hdir = root.addSide(Side.Directory);
 
 					for (HierSide s: root.sides) 
@@ -281,37 +284,7 @@ public class Main {
 							if (v.side == s.side) {
 								HierEnt he = s.addPiEntity(v);
 								he.getObjectsIndex();
-								if (he.objs!=null) for (PiObject o: he.objs) {
-									o.pawtouch();
-								}
 							}
-					d.loopUpdateQueue();
-					
-				} else if ("prepare".equals(a0)) {
-					assert pih!=null : "addHost wasn't called before refresh";
-					root = root==null ? new HierRoot(d,pih) : root;
-					d.refreshMeta(pih);
-					d.__refreshSWCV(pih, false);
-				} else if ("refresh(Repository,ariscxnocc)".equals(a0)) {
-					assert pih!=null : "addHost wasn't called before refresh";
-					assert root!=null : "prepare wasn't called before";
-					hrep = hrep==null ? root.addSide(Side.Repository) : hrep;
-					
-					HierEnt he = hrep.addPiEntity(pih.getEntity(hrep.side, "ariscxnocc"));
-					he.getObjectsIndex();
-					if (he.objs!=null) for (PiObject o: he.objs) {
-						o.pawtouch();
-					}
-					d.loopUpdateQueue();
-				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
-					String s1, s2[];
-					s1 = a0.substring("refresh(".length());
-					s1 = s1.substring(0, s1.length()-1);
-					s2 = s1.split(",");
-					Side sd = Side.get(s2[0]);
-					s1 = s2[1];
-					PiEntity e = pih.getEntity(sd, s1);
-					assert e!=null : "Entity " + s2[0] + "/" + s2[1] + " isn't detected";
 				} else if ("transportCheck".equals(a0)) {
 					transportCheck(d, pih);
 				} else if ("migrateHostDB".equals(a0)) {

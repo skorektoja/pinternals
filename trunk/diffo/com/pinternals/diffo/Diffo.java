@@ -213,7 +213,6 @@ public class Diffo implements IDiffo, Cloneable {
 		Class.forName("org.sqlite.JDBC");
 		try {
 			cn = DriverManager.getConnection("jdbc:sqlite::memory:");
-			// cn = DriverManager.getConnection("jdbc:sqlite:test.db");
 			cn.setAutoCommit(true);
 		} catch (SQLException ex) {
 			ok = false;
@@ -229,7 +228,7 @@ public class Diffo implements IDiffo, Cloneable {
 						DUtil.prepareStatement(cn, k);
 					} catch (SQLException ex) {
 						ok = false;
-						log.severe(DUtil.format("simulatedb_prepare", k, DUtil
+						log.severe(DUtil.format("Diffo02simulatedb_prepare", k, DUtil
 								.getSql(k), ex.getMessage()));
 					}
 				}
@@ -238,13 +237,13 @@ public class Diffo implements IDiffo, Cloneable {
 				cn.close();
 				ok = ok && cn.isClosed();
 			} catch (SQLException ex) {
-				log.severe(DUtil.format("simulatedb_close", ex.getMessage()));
+				log.severe(DUtil.format("Diffo03simulatedb_close", ex.getMessage()));
 				ok = false;
 			}
 		}
 		if (log.isLoggable(Level.FINER))
 			log.finer(t);
-		log.log(ok ? Level.INFO : Level.SEVERE, DUtil.format("simulatedb", ok));
+		log.log(ok ? Level.CONFIG : Level.SEVERE, DUtil.format("Diffo01simulatedb", ok));
 		return ok;
 	}
 
@@ -446,8 +445,7 @@ public class Diffo implements IDiffo, Cloneable {
 				x.addAttr(rsa.getString(1), rsa.getString(2), rsa.getInt(3));
 			// Находим последнее обновление
 			x.setLastInfo(rs.getObject(6)==null ? null : rs.getLong(6), 
-					rs.getObject(7)==null ? null : rs.getLong(7),
-					rs.getString(8));
+					rs.getObject(7)==null ? null : rs.getLong(7));
 			db.add(x);
 		}
 		return db;
@@ -894,10 +892,42 @@ public class Diffo implements IDiffo, Cloneable {
 	
 	@Override
 	public boolean refresh(String sid, String url, String user, String password)
-			throws MalformedURLException, SQLException, IOException,
-			SAXException, ParseException, InterruptedException {
-		// TODO Auto-generated method stub
-		return false;
+			throws RuntimeException
+			 {
+		try {
+			
+			boolean b = opendb() && (isDbExist() || createdb() && validatedb());
+			boolean started = b && start_session();
+			
+			if (started) {
+				PiHost pih = addPiHost(sid, url);
+				pih.setUserCredentials(user, password);
+				HierRoot root =  new HierRoot(this,pih);
+				refreshMeta(pih);
+				__refreshSWCV(pih, false);
+	
+				HierSide hrep = root.addSide(Side.Repository);
+				HierSide hdir = root.addSide(Side.Directory);
+	
+				for (HierSide s: root.sides) 
+					for (PiEntity v: pih.entities.values())
+						if (v.side == s.side) {
+							HierEnt he = s.addPiEntity(v);
+							he.getObjectsIndex();
+						}
+			}
+			if (started) {
+				started = false;
+				finish_session();
+				validatedb();
+				closedb();
+			}
+			shutdown();
+		} catch (Exception ce) {
+			throw new RuntimeException(ce);
+		} finally {
+			return true;
+		}
 	}
 
 }
