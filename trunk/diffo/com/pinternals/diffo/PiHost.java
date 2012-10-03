@@ -159,7 +159,7 @@ public class PiHost {
 			SQEntityAttr sq = PiEntity.parse_ra(hDocs.bis, "types");
 			 
 			for (int i=0; i<sq.size; i++) {
-				PiEntity e = new PiEntity(this, 0, side, sq.matrix[i][0], sq.matrix[i][1], i); 
+				PiEntity e = new PiEntity(this, 0, side, sq.matrix[i][0], sq.matrix[i][1], i, null); 
 				es.add(e);
 				if (log.isLoggable(Level.FINEST)) log.finest("collectDocsRA: extracted " + e.intname);
 				HTask h = e.collectRA(this);
@@ -262,13 +262,17 @@ public class PiHost {
 
 		ha = fa.get();
 		int cnt = 0;
-		while (ha.bis == null && cnt<3) {
+		while (ha.bis == null && cnt<1) {
 			fa = HUtil.addHTask(ha);
 			ha = fa.get();
 			cnt++;
 		}
-		SimpleQueryHandler sqh = PiEntity.handleStream(ha.bis);
-		e.parse_index(rez, sqh, del);
+		if (ha.bis==null) {
+			log.severe("Can't read index for " + e + " after " + cnt + " attempts");
+		} else {
+			SimpleQueryHandler sqh = PiEntity.handleStream(ha.bis);
+			e.parse_index(rez, sqh, del);
+		}
 		return rez;
 	}
 
