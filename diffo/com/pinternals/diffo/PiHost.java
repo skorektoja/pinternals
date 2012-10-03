@@ -249,10 +249,11 @@ public class PiHost {
 			return false;
 	}
 	
-	public List<PiObject> askIndexOnline(PiEntity e, boolean del) throws IOException, SAXException, InterruptedException, ExecutionException {
+	public List<PiObject> askIndexOnline(PiEntity e, boolean del) 
+			throws IOException, SAXException
+			, InterruptedException, ExecutionException {
 		assert e!=null : "Entity must be present";
 		
-//		String qdel = null, qactiv = null, s3 = "result=RA_XILINK&result=OBJECTID&result=VERSIONID";
 		if (log.isLoggable(Level.CONFIG)) 
 			log.config("askIndex started for entity " + e.intname + " deleted=" + del);
 

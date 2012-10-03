@@ -50,17 +50,29 @@ class HierEnt implements Hier {
 	}
 	void getObjectsIndex() throws IOException, SAXException, InterruptedException, ExecutionException, SQLException {
 		assert side!=null && ent!=null : "Either side or entity are empty";
-		PiHost p = ent.host;
-		Diffo d = side.root.d;
+		boolean bg = false;
+		final PiHost p = ent.host;
+		final Diffo d = side.root.d;
 		if (side.side==Side.Repository && ent.intname.equals("workspace")) {
 			objs = new ArrayList<PiObject>(100);
 			for (SWCV s: p.swcv.values()) objs.add(s);
-		} else if (ent.is_indexed)  {
-			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
+		} else if (bg && ent.is_indexed)  {
+//			new Runnable(){
+//				@Override
+//				public void run() {
+//					List<PiObject> act = p.askIndexOnline(ent, false), 
+//							del = p.askIndexOnline(ent, true);
+//					act.addAll(del);
+//				}
+//			}.run();
+		} else if (ent.is_indexed) {
+			List<PiObject> act = p.askIndexOnline(ent, false), 
+					del = p.askIndexOnline(ent, true);
 			act.addAll(del);
 			del = null;
 			List<PiObject> db = d.__getIndexDb(p, ent);
 			objs = d.mergeObjects(p, ent, db, act);
+			ent.addUpdateQueue(objs);
 		}
 	}
 }
