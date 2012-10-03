@@ -265,7 +265,7 @@ public class Main {
 					pih.setUserCredentials(uname, passwd);
 				} else if ("refreshMinimum".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
-					HierRoot root = new HierRoot(d,pih);
+					new HierRoot(d,pih);
 					d.refreshMeta(pih);
 					d.__refreshSWCV(pih, false);
 				} else if ("refresh".equals(a0)) {

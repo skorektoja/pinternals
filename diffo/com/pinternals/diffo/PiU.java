@@ -83,8 +83,9 @@ class HierEnt implements Hier {
 				|| ent.intname.equals("idoc")
 				|| ent.intname.equals("processstep")
 				|| ent.intname.equals("rfc")
+				|| ent.intname.equals("XI_TRAFO")
+				|| ent.intname.equals("MAPPING")
 				|| true
-//				|| ent.intname.equals("") 
 				)  {
 			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
 			act.addAll(del);

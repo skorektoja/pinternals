@@ -31,7 +31,7 @@ public class HUtil {
 		q = new ArrayBlockingQueue<Runnable>(limit+2000);
 //		shutdown = false;
 		log.config("Registered HUtil, maxthreads=" + limit);
-		ex = new ThreadPoolExecutor(limit, limit+5, 1, TimeUnit.SECONDS, q);
+		ex = new ThreadPoolExecutor(limit, limit+5, 5, TimeUnit.SECONDS, q);
 	}
 	public static void shutdown() {
 		ex.shutdown();
