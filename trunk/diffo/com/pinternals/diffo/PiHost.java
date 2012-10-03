@@ -251,7 +251,7 @@ public class PiHost {
 	
 	public List<PiObject> askIndexOnline(PiEntity e, boolean del) 
 			throws IOException, SAXException
-			, InterruptedException, ExecutionException {
+			 {
 		assert e!=null : "Entity must be present";
 		
 		if (log.isLoggable(Level.CONFIG)) 
@@ -261,13 +261,15 @@ public class PiHost {
 		HTask ha = e.makeOnlineHTask(this, del);
 		FutureTask<HTask> fa = HUtil.addHTask(ha);
 
-		ha = fa.get();
 		int cnt = 0;
-		while (ha.bis == null && cnt<1) {
-			fa = HUtil.addHTask(ha);
+		try {
 			ha = fa.get();
-			cnt++;
-		}
+			while (ha.bis == null && cnt<1) {
+				fa = HUtil.addHTask(ha);
+				ha = fa.get();
+				cnt++;
+			}
+		} catch (Exception ignore) {}
 		if (ha.bis==null) {
 			log.severe("Can't read index for " + e + " after " + cnt + " attempts");
 		} else {
