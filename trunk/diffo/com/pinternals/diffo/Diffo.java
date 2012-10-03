@@ -1127,7 +1127,8 @@ public class Diffo implements IDiffo, Cloneable {
 	
 	void loopUpdateQueue() throws SQLException {
 		PreparedStatement insobj = prepareStatement("sql_obj_ins1")
-				, insver = prepareStatement("sql_ver_ins1")
+				, insver = prepareStatement("sql_ver_ins1")	// insver через SWCV_REF
+				, insver2 = prepareStatement("sql_ver_ins2")	// insver без SWCV_REF
 				
 				, chnobj = prepareStatement("sql_obj_upd2")
 				, chnpver = prepareStatement("sql_ver_upd21")
@@ -1161,9 +1162,15 @@ public class Diffo implements IDiffo, Cloneable {
 							o.qryref,
 							o.deleted ? l1 : l0 );
 					insobj.addBatch();
-					DUtil.setStatementParams(insver, 
-							o.e.host.host_id, o.e.entity_id, o.objectid, o.refSWCVsql(), o.versionid, session_id);
-					insver.addBatch();
+					if (o.refSWCV!=-1L) {
+						DUtil.setStatementParams(insver, 
+							o.e.host.host_id, o.e.entity_id, o.objectid, o.refSWCV, o.versionid, session_id);
+						insver.addBatch();
+					} else {
+						DUtil.setStatementParams(insver2, 
+								o.e.host.host_id, o.e.entity_id, o.objectid, o.versionid, session_id);
+						insver2.addBatch();
+					}
 					ud1.add(o.objectid);
 					z++;
 					break;
@@ -1197,24 +1204,36 @@ public class Diffo implements IDiffo, Cloneable {
 				default:
 					break;
 			}
-			if (z>999) {
+			if (z>1999) {
 				zz += z;
 				// Уррра коротким и максимально пакетным транзакциям!
+				System.out.print("{");
 				DUtil.lock();
+				System.out.print("/");
 				DUtil.executeBatch(insobj);
+				System.out.print("-");
 				DUtil.executeBatch(insver);
+				System.out.print("\\");
+				DUtil.executeBatch(insver2);
+				System.out.print("|");
 				DUtil.executeBatch(chnobj);
+				System.out.print("/");
 				DUtil.executeBatch(chnpver);
+				System.out.print("-");
 				DUtil.executeBatch(chninsver);
+				System.out.print("\\");
 				DUtil.unlock(conn);
+				System.out.print("}");
 				z=0;
 				log.info("Objects handled so far: " + zz + ", total amount: " + updateQueue.size());
 			}
+			System.out.print(".");
 		}
 		// Уррра коротким и максимально пакетным транзакциям!
 		DUtil.lock();
 		DUtil.executeBatch(insobj);
 		DUtil.executeBatch(insver);
+		DUtil.executeBatch(insver2);
 		DUtil.executeBatch(chnobj);
 		DUtil.executeBatch(chnpver);
 		DUtil.executeBatch(chninsver);
