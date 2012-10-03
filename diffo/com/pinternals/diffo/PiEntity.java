@@ -38,17 +38,26 @@ public class PiEntity {
 	public Side side = null;
 	public ArrayList<ResultAttribute> attrs = new ArrayList<ResultAttribute>(20);
 	public boolean ok = false;
+	public boolean is_indexed = false;
 	protected PiHost host = null;
 	private Long lastDtFrom = null;
 	protected long affected = 0, minDT = 0;
 	
-	protected PiEntity (PiHost p, long entity_id, Side side, String intname, String title, int seqno) {
+	protected PiEntity (PiHost p, long entity_id, Side side, String intname, String title, int seqno, Boolean is_indexed) {
 		this.intname = intname;
 		this.title = title;
 		this.side = side;
 		this.seqno = seqno;
 		this.entity_id = entity_id;
 		this.host = p;
+		if (is_indexed==null) {
+			this.is_indexed = false;
+			String m = DUtil.format("pientity_defidx."+side);
+			for (String s: m.split(",")) {
+				this.is_indexed = this.is_indexed || s.trim().equals(intname);
+			}
+		} else 
+			this.is_indexed = is_indexed;
 	}
 	protected void setLastInfo(Long minDT1, Long affected, String session_close_dt) {
 		lastDtFrom = minDT1;
@@ -102,6 +111,8 @@ public class PiEntity {
 
 	// parse given stream to regular table
 	protected static SimpleQueryHandler handleStream(InputStream is) throws IOException, SAXException {
+		assert is!=null : "Attempt to parse empty input";
+
 		Parser p = new Parser();
 		SimpleQueryHandler sqh = new SimpleQueryHandler();
 		p.setContentHandler(sqh);
@@ -163,7 +174,7 @@ public class PiEntity {
 		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
 				, qry = "", sync = "syncTabL=true&", dt="", deld="deletedL=D&", alive="deletedL=N&";
 		if (lastDtFrom!=null) {
-			Date d = new Date(lastDtFrom-31*86400*1000);
+			Date d = new Date(lastDtFrom-5*24*60*60*1000);
 			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 			dt = sdf.format(d);
 			dt = "qcActiveL0=true&qcKeyL0=MODIFYDATE&qcOpL0=GE&qcValueL0=#DT#"+dt+"&";

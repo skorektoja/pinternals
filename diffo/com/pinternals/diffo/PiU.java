@@ -55,15 +55,7 @@ class HierEnt implements Hier {
 		if (side.side==Side.Repository && ent.intname.equals("workspace")) {
 			objs = new ArrayList<PiObject>(100);
 			for (SWCV s: p.swcv.values()) objs.add(s);
-		} else if (side.side==Side.Directory && (
-				ent.intname.equals("AgencySchemObj") 
-				) ) { 
-			// ignore
-		} else if (side.side==Side.Repository && ( 
-					ent.intname.equals("ifmopmess") || ent.intname.equals("MAP_HELPER")  
-				) ) {  
-			// ignore
-		} else  {
+		} else if (ent.is_indexed)  {
 			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
 			act.addAll(del);
 			del = null;

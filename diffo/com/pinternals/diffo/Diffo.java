@@ -440,14 +440,14 @@ public class Diffo implements IDiffo, Cloneable {
 		ResultSet rs = eg.executeQuery(), rsa;
 		List<PiEntity> db = new ArrayList<PiEntity>(0);
 		while (rs.next()) {
-			PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4));
+			PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4),rs.getLong(5) == 1);
 			rsa = DUtil.setStatementParams(psa, x.entity_id).executeQuery();
 			while (rsa.next())
 				x.addAttr(rsa.getString(1), rsa.getString(2), rsa.getInt(3));
 			// Находим последнее обновление
-			x.setLastInfo(rs.getObject(5)==null ? null : rs.getLong(5), 
-					rs.getObject(6)==null ? null : rs.getLong(6),
-					rs.getString(7));
+			x.setLastInfo(rs.getObject(6)==null ? null : rs.getLong(6), 
+					rs.getObject(7)==null ? null : rs.getLong(7),
+					rs.getString(8));
 			db.add(x);
 		}
 		return db;
@@ -462,8 +462,9 @@ public class Diffo implements IDiffo, Cloneable {
 			if (q == -1) {
 				// Есть онлайн, нету в БД => добавляем
 				log.fine("try to add entity " + x.side.txt() + "|" + x.intname);
-				// INSERT INTO entity(side,internal,host_id,caption,seqno,session_id) VALUES (?1,?2,?3,?4,?5,?6);
-				DUtil.setStatementParams(inse,x.side.txt(),x.intname,p.host_id,x.title,x.seqno,session_id);
+				// INSERT INTO entity(side,internal,host_id,caption,seqno,session_id,is_indexed) VALUES (?1,?2,?3,?4,?5,?6,?7);
+				DUtil.setStatementParams(inse,x.side.txt(),x.intname,p.host_id,x.title,x.seqno,session_id,
+						x.is_indexed ? 1 : 0);
 				i = inse.executeUpdate();
 				assert i==1;
 				x.entity_id = inse.getGeneratedKeys().getLong(1);
