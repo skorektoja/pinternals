@@ -285,32 +285,24 @@ public class Main {
 									o.pawtouch();
 								}
 							}
-					try {
-						d.loopUpdateQueue();
-					} finally {
-//						d.saveStatistic();
-					}
+					d.loopUpdateQueue();
 					
 				} else if ("prepare".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
 					root = root==null ? new HierRoot(d,pih) : root;
 					d.refreshMeta(pih);
 					d.__refreshSWCV(pih, false);
-				} else if ("refresh(Repository,XI_TRAFO)".equals(a0)) {
+				} else if ("refresh(Repository,ariscxnocc)".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
 					assert root!=null : "prepare wasn't called before";
 					hrep = hrep==null ? root.addSide(Side.Repository) : hrep;
 					
-					HierEnt he = hrep.addPiEntity(pih.getEntity(hrep.side, "XI_TRAFO"));
+					HierEnt he = hrep.addPiEntity(pih.getEntity(hrep.side, "ariscxnocc"));
 					he.getObjectsIndex();
 					if (he.objs!=null) for (PiObject o: he.objs) {
 						o.pawtouch();
 					}
-					try {
-						d.loopUpdateQueue();
-					} finally {
-//						d.saveStatistic();
-					}
+					d.loopUpdateQueue();
 				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
 					String s1, s2[];
 					s1 = a0.substring("refresh(".length());

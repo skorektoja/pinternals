@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.FutureTask;
+import java.util.logging.Logger;
 
 import org.ccil.cowan.tagsoup.Parser;
 import org.xml.sax.InputSource;
@@ -22,6 +23,7 @@ import org.xml.sax.SAXException;
 
 
 public class PiEntity {
+	private static Logger log = Logger.getLogger(PiEntity.class.getName());
 	class ResultAttribute {
 		String internal, caption;
 		int seqno;
@@ -51,7 +53,9 @@ public class PiEntity {
 	protected void setLastInfo(Long minDT1, Long affected, String session_close_dt) {
 		lastDtFrom = minDT1;
 		if (minDT1!=null)
-			System.out.println("minDT=" + lastDtFrom + " affected=" + affected + " session_close_dt=" + session_close_dt);
+			log.info("There was previous query for " + this + " minDT=" + lastDtFrom + " affected=" + affected + " session_close_dt=" + session_close_dt);
+		else
+			log.info("There was no previous query for " + this );
 	}
 	synchronized protected void incAffected() {
 		affected++;
