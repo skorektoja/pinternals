@@ -795,7 +795,7 @@ public class Diffo implements IDiffo, Cloneable {
 //		updateQueue.add(o);
 //	}
 	
-	void loopUpdateQueue(List<PiObject> updateQueue) throws SQLException {
+	synchronized void loopUpdateQueue(List<PiObject> updateQueue) throws SQLException {
 		PreparedStatement insobj = prepareStatement("sql_obj_ins1")
 				, insver = prepareStatement("sql_ver_ins1")	// insver через SWCV_REF
 				, insver2 = prepareStatement("sql_ver_ins2")	// insver без SWCV_REF
@@ -872,7 +872,7 @@ public class Diffo implements IDiffo, Cloneable {
 		zz += z;
 		log.info("Objects handled total: " + zz);
 	}
-	public void saveStatistic(List<PiObject> updateQueue) throws SQLException {
+	synchronized public void saveStatistic(List<PiObject> updateQueue) throws SQLException {
 		HashSet<PiEntity> hse = new HashSet<PiEntity>(100);  
 		for (PiObject o: updateQueue) {
 			o.e.incAffected();
@@ -895,39 +895,25 @@ public class Diffo implements IDiffo, Cloneable {
 			throws RuntimeException
 			 {
 		try {
-			
-			boolean b = opendb() && (isDbExist() || createdb() && validatedb());
-			boolean started = b && start_session();
-			
-			if (started) {
-				PiHost pih = addPiHost(sid, url);
-				pih.setUserCredentials(user, password);
-				HierRoot root =  new HierRoot(this,pih);
-				refreshMeta(pih);
-				__refreshSWCV(pih, false);
-	
-				root.addSide(Side.Repository);
-				root.addSide(Side.Directory);
-	
-				for (HierSide s: root.sides) 
-					for (PiEntity v: pih.entities.values())
-						if (v.side == s.side) {
-							HierEnt he = s.addPiEntity(v);
-							he.getObjectsIndex();
-						}
-			}
-			if (started) {
-				started = false;
-				finish_session();
-				validatedb();
-				closedb();
-			}
-			shutdown();
+			PiHost pih = addPiHost(sid, url);
+			pih.setUserCredentials(user, password);
+			HierRoot root =  new HierRoot(this,pih);
+			refreshMeta(pih);
+			__refreshSWCV(pih, false);
+
+			root.addSide(Side.Repository);
+			root.addSide(Side.Directory);
+
+			for (HierSide s: root.sides) 
+				for (PiEntity v: pih.entities.values())
+					if (v.side == s.side) {
+						HierEnt he = s.addPiEntity(v);
+						he.getObjectsIndex();
+					}
 		} catch (Exception ce) {
 			throw new RuntimeException(ce);
-		} finally {
-			return true;
 		}
+		return true;
 	}
 
 }
