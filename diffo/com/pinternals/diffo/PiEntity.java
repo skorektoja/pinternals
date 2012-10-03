@@ -159,7 +159,7 @@ public class PiEntity {
 		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
 				, qry = "", sync = "syncTabL=true&", dt="", deld="deletedL=D&", alive="deletedL=N&";
 		if (lastDtFrom!=null) {
-			Date d = new Date(lastDtFrom-10*86400*1000);
+			Date d = new Date(lastDtFrom-31*86400*1000);
 			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 			dt = sdf.format(d);
 			dt = "qcActiveL0=true&qcKeyL0=MODIFYDATE&qcOpL0=GE&qcValueL0=#DT#"+dt+"&";

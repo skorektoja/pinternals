@@ -57,36 +57,13 @@ class HierEnt implements Hier {
 			for (SWCV s: p.swcv.values()) objs.add(s);
 		} else if (side.side==Side.Directory && (
 				ent.intname.equals("AgencySchemObj") 
-				|| false
 				) ) { 
 			// ignore
 		} else if (side.side==Side.Repository && ( 
-					ent.intname.equals("ifmopmess")  
-				|| ent.intname.equals("MAP_HELPER")
-				|| ent.intname.startsWith("aris")
-				|| ent.intname.startsWith("BO_")
-				) ) {
+					ent.intname.equals("ifmopmess") 
+				) ) {  
 			// ignore
-		} else if ( (side.side==Side.Directory ) 
-//				|| (side.side==Side.Repository && ent.intname.equals("XI_TRAFO"))
-//				|| (side.side==Side.Repository && ent.intname.equals("AdapterMetaData"))
-//				|| (side.side==Side.Repository && ent.intname.equals("ifmextdef"))
-				) {
-			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
-			act.addAll(del);
-			del = null;
-			List<PiObject> db = d.__getIndexDb(p, ent);
-			objs = d.mergeObjects(p, ent, db, act);
-			// ignore
-		} else if ( ent.intname.equals("ifmextmes") 
-				|| ent.intname.equals("ifmoper") 
-				|| ent.intname.equals("idoc")
-				|| ent.intname.equals("processstep")
-				|| ent.intname.equals("rfc")
-				|| ent.intname.equals("XI_TRAFO")
-				|| ent.intname.equals("MAPPING")
-				|| true
-				)  {
+		} else  {
 			List<PiObject> act = p.askIndexOnline(ent, false), del = p.askIndexOnline(ent, true);
 			act.addAll(del);
 			del = null;
