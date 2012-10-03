@@ -242,6 +242,8 @@ public class Main {
 		new HUtil(th);
 		Diffo d = new Diffo(dbfn, prx, tx);
 		PiHost pih = null;
+		HierRoot root = null;
+		HierSide hrep = null, hdir = null;
 		boolean started = false, b;
 		try {
 			assert Diffo.simulatedb() : "SimulateDB error";
@@ -263,21 +265,16 @@ public class Main {
 				} else if ("addHost".equals(a0)) {
 					pih = d.addPiHost(sid, xihost);
 					pih.setUserCredentials(uname, passwd);
-				} else if ("refreshMinimum".equals(a0)) {
-					assert pih!=null : "addHost wasn't called before refresh";
-					new HierRoot(d,pih);
-					d.refreshMeta(pih);
-					d.__refreshSWCV(pih, false);
 				} else if ("refresh".equals(a0)) {
 					assert pih!=null : "addHost wasn't called before refresh";
-					HierRoot root = new HierRoot(d,pih);
+					root = root==null ? new HierRoot(d,pih) : root;
 					d.refreshMeta(pih);
 					d.__refreshSWCV(pih, false);
 
 					System.out.println("+++++ Repository");
-					HierSide hrep = root.addSide(Side.Repository);
-//					System.out.println("+++++ Directory");
-//					HierSide hdir = root.addSide(Side.Directory);
+					hrep = root.addSide(Side.Repository);
+					System.out.println("+++++ Directory");
+					hdir = root.addSide(Side.Directory);
 
 					for (HierSide s: root.sides) 
 						for (PiEntity v: pih.entities.values())
@@ -288,20 +285,32 @@ public class Main {
 									o.pawtouch();
 								}
 							}
-					d.loopUpdateQueue();
+					try {
+						d.loopUpdateQueue();
+					} finally {
+//						d.saveStatistic();
+					}
 					
+				} else if ("prepare".equals(a0)) {
+					assert pih!=null : "addHost wasn't called before refresh";
+					root = root==null ? new HierRoot(d,pih) : root;
+					d.refreshMeta(pih);
+					d.__refreshSWCV(pih, false);
+				} else if ("refresh(Repository,XI_TRAFO)".equals(a0)) {
+					assert pih!=null : "addHost wasn't called before refresh";
+					assert root!=null : "prepare wasn't called before";
+					hrep = hrep==null ? root.addSide(Side.Repository) : hrep;
 					
-//				} else if ("refreshMeta".equals(a0)) {
-//					d.refreshMeta(pih);
-//				} else if ("refreshSWCV".equals(a0)) {
-//				} else if ("askIndexRepository".equals(a0)) {
-//					d.askIndexRepository(pih);
-//					d.tickIndexRequestQueue(true);
-//				} else if ("askIndexDirectory".equals(a0)) {
-//					d.askIndexDirectory(pih);
-//					d.tickIndexRequestQueue(true);
-//				} else if ("payloads".equals(a0)) {
-//					pih.download();
+					HierEnt he = hrep.addPiEntity(pih.getEntity(hrep.side, "XI_TRAFO"));
+					he.getObjectsIndex();
+					if (he.objs!=null) for (PiObject o: he.objs) {
+						o.pawtouch();
+					}
+					try {
+						d.loopUpdateQueue();
+					} finally {
+//						d.saveStatistic();
+					}
 				} else if (!a0.isEmpty() && a0.matches("refresh\\((Repository|Directory),[a-zA-Z_]+\\)")) {
 					String s1, s2[];
 					s1 = a0.substring("refresh(".length());
@@ -311,10 +320,6 @@ public class Main {
 					s1 = s2[1];
 					PiEntity e = pih.getEntity(sd, s1);
 					assert e!=null : "Entity " + s2[0] + "/" + s2[1] + " isn't detected";
-					if (e!=null) {
-						d.putIndexRequestInQueue(pih, e);
-						d.tickIndexRequestQueue(true);
-					}
 				} else if ("transportCheck".equals(a0)) {
 					transportCheck(d, pih);
 				} else if ("migrateHostDB".equals(a0)) {

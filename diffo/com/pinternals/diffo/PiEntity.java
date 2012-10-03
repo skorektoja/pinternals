@@ -32,12 +32,13 @@ public class PiEntity {
 		}
 	}	
 	public String intname, title;
-	public long entity_id;
-	public int seqno;
+	public long entity_id, seqno;
 	public Side side = null;
 	public ArrayList<ResultAttribute> attrs = new ArrayList<ResultAttribute>(20);
 	public boolean ok = false;
 	protected PiHost host = null;
+	private Long lastDtFrom = null;
+	protected long affected = 0, minDT = 0;
 	
 	protected PiEntity (PiHost p, long entity_id, Side side, String intname, String title, int seqno) {
 		this.intname = intname;
@@ -46,6 +47,14 @@ public class PiEntity {
 		this.seqno = seqno;
 		this.entity_id = entity_id;
 		this.host = p;
+	}
+	protected void setLastInfo(Long minDT1, Long affected, String session_close_dt) {
+		lastDtFrom = minDT1;
+		if (minDT1!=null)
+			System.out.println("minDT=" + lastDtFrom + " affected=" + affected + " session_close_dt=" + session_close_dt);
+	}
+	synchronized protected void incAffected() {
+		affected++;
 	}
 	protected void addAttr(String intname, String caption, int seqno) {
 		ResultAttribute ra = new ResultAttribute(intname,caption, seqno);
@@ -148,19 +157,26 @@ public class PiEntity {
 	}
 	HTask makeOnlineHTask (PiHost p, boolean deleted) throws MalformedURLException, IOException {
 		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
-				, qry = "", sync = "syncTabL=true&";
+				, qry = "", sync = "syncTabL=true&", dt="", deld="deletedL=D&", alive="deletedL=N&";
+		if (lastDtFrom!=null) {
+			Date d = new Date(lastDtFrom-10*86400*1000);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			dt = sdf.format(d);
+			dt = "qcActiveL0=true&qcKeyL0=MODIFYDATE&qcOpL0=GE&qcValueL0=#DT#"+dt+"&";
+		}
 		if (intname.startsWith("ifm")) sync="";
 		if (side.equals(Side.Repository) && !deleted)
-			qry = "qc=All+software+components&" + sync + "deletedL=N&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+			qry = "qc=All+software+components&" + sync + dt + alive +"xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
 		else if (side.equals(Side.Repository))
-			qry = "qc=All+software+components&" + sync + "deletedL=D&xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query"; 
+			qry = "qc=All+software+components&" + sync + dt + deld +"xmlReleaseL=7.1&queryRequestXMLL=&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query"; 
 		else if (side.equals(Side.Directory) && !deleted)
-			qry = "qc=Default+%28for+directory+objects%29&syncTabL=true&deletedL=N&xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+			qry = "qc=Default+%28for+directory+objects%29&" + sync + dt + alive +"xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
 		else if (side.equals(Side.Directory))
-			qry = "qc=Default+%28for+directory+objects%29&syncTabL=true&deletedL=D&xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
+			qry = "qc=Default+%28for+directory+objects%29&" + sync + dt + deld +"xmlReleaseL=7.1&types=" + intname + "&result=RA_XILINK&result=OBJECTID&result=VERSIONID&action=Start+query";
 		else
 			throw new RuntimeException("Unknown logic");
 		
+		if (minDT==0) minDT = new Date().getTime();
 		HTask h = new HTask(nm, p.establishPOST(side.url(p.uroot), true), qry);
 		return h;
 	}
