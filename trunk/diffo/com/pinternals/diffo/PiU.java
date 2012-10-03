@@ -48,7 +48,7 @@ class HierEnt implements Hier {
 		side = s;
 		ent = e;
 	}
-	void getObjectsIndex() throws IOException, SAXException, InterruptedException, ExecutionException, SQLException {
+	void getObjectsIndex() throws IOException, SAXException, SQLException {
 		assert side!=null && ent!=null : "Either side or entity are empty";
 		boolean bg = false;
 		final PiHost p = ent.host;
@@ -57,14 +57,25 @@ class HierEnt implements Hier {
 			objs = new ArrayList<PiObject>(100);
 			for (SWCV s: p.swcv.values()) objs.add(s);
 		} else if (bg && ent.is_indexed)  {
-//			new Runnable(){
-//				@Override
-//				public void run() {
-//					List<PiObject> act = p.askIndexOnline(ent, false), 
-//							del = p.askIndexOnline(ent, true);
-//					act.addAll(del);
-//				}
-//			}.run();
+			Thread t = new Thread(new Runnable(){
+				@Override
+				public void run() {
+					List<PiObject> act=null, del=null, db=null;
+					try {
+						act = p.askIndexOnline(ent, false);
+						del = p.askIndexOnline(ent, true);
+						db = d.__getIndexDb(p, ent);
+						act.addAll(del);
+						objs = d.mergeObjects(p, ent, db, act);
+						ent.addUpdateQueue(objs);
+						ent.host.diffo.loopUpdateQueue(ent.updateQueue);
+					} catch (Exception e) {
+						e.printStackTrace();
+					} finally {
+					}
+				}
+			});
+			t.start();
 		} else if (ent.is_indexed) {
 			List<PiObject> act = p.askIndexOnline(ent, false), 
 					del = p.askIndexOnline(ent, true);
