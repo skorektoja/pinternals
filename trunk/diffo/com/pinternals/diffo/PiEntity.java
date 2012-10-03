@@ -71,7 +71,12 @@ public class PiEntity {
 	}
 	synchronized public void addUpdateQueue(List<PiObject> coming) {
 		if (updateQueue==null) updateQueue = new LinkedList<PiObject>();
-		updateQueue.addAll(coming);
+		for (PiObject n: coming) {
+			if (!n.inupdatequeue && !updateQueue.contains(n)) {
+				n.inupdatequeue = true;
+				updateQueue.add(n); 
+			}
+		}
 	}
 	
 	protected void addAttr(String intname, String caption, int seqno) {
@@ -275,10 +280,10 @@ class PiObject {
 		else
 			return 0; // объект не найден
 	}
-	public void pawtouch() {
-		if (inupdatequeue) return;
-		if (is_dirty) e.host.diffo.addPiObjectUpdateQueue(this);
-	}
+//	public void pawtouch() {
+//		if (inupdatequeue) return;
+//		if (is_dirty) e.addUpdateQueue(this);
+//	}
 }
 
 class SWCV extends PiObject {

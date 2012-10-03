@@ -73,6 +73,7 @@ class HierEnt implements Hier {
 			List<PiObject> db = d.__getIndexDb(p, ent);
 			objs = d.mergeObjects(p, ent, db, act);
 			ent.addUpdateQueue(objs);
+			ent.host.diffo.loopUpdateQueue(ent.updateQueue);
 		}
 	}
 }

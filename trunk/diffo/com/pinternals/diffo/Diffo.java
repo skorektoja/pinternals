@@ -787,15 +787,15 @@ public class Diffo implements IDiffo, Cloneable {
 		}
 		return mrgd;
 	}
-	List<PiObject> updateQueue = new LinkedList<PiObject>();
-	synchronized void addPiObjectUpdateQueue(PiObject o) {
-		assert o.is_dirty;
-		assert !o.inupdatequeue : "Already in queue";
-		o.inupdatequeue = true;
-		updateQueue.add(o);
-	}
+//	List<PiObject> updateQueue = new LinkedList<PiObject>();
+//	synchronized void addPiObjectUpdateQueue(PiObject o) {
+//		assert o.is_dirty;
+//		assert !o.inupdatequeue : "Already in queue";
+//		o.inupdatequeue = true;
+//		updateQueue.add(o);
+//	}
 	
-	void loopUpdateQueue() throws SQLException {
+	void loopUpdateQueue(List<PiObject> updateQueue) throws SQLException {
 		PreparedStatement insobj = prepareStatement("sql_obj_ins1")
 				, insver = prepareStatement("sql_ver_ins1")	// insver через SWCV_REF
 				, insver2 = prepareStatement("sql_ver_ins2")	// insver без SWCV_REF
@@ -867,12 +867,12 @@ public class Diffo implements IDiffo, Cloneable {
 		DUtil.executeBatch(chnobj);
 		DUtil.executeBatch(chnpver);
 		DUtil.executeBatch(chninsver);
-		saveStatistic();
+		saveStatistic(updateQueue);
 		DUtil.unlock(conn);
 		zz += z;
 		log.info("Objects handled total: " + zz);
 	}
-	public void saveStatistic() throws SQLException {
+	public void saveStatistic(List<PiObject> updateQueue) throws SQLException {
 		HashSet<PiEntity> hse = new HashSet<PiEntity>(100);  
 		for (PiObject o: updateQueue) {
 			o.e.incAffected();
@@ -906,8 +906,8 @@ public class Diffo implements IDiffo, Cloneable {
 				refreshMeta(pih);
 				__refreshSWCV(pih, false);
 	
-				HierSide hrep = root.addSide(Side.Repository);
-				HierSide hdir = root.addSide(Side.Directory);
+				root.addSide(Side.Repository);
+				root.addSide(Side.Directory);
 	
 				for (HierSide s: root.sides) 
 					for (PiEntity v: pih.entities.values())
