@@ -7,8 +7,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 
 import org.xml.sax.SAXException;
+
+import com.pinternals.diffo.PiObject.Kind;
 
 interface Hier {
 }
@@ -48,34 +51,80 @@ class HierEnt implements Hier {
 		side = s;
 		ent = e;
 	}
-	void getObjectsIndex() throws IOException, SAXException, SQLException {
+	class Zz implements Runnable{
+		boolean del=false, online=false, error = false;
+		Exception e;
+		List<PiObject> lst;
+		Zz(boolean dl, boolean onl) {
+			del=dl;
+			online=onl;
+		}
+		@Override
+		public void run() {
+			try {
+				if (online)
+					lst = ent.host.askIndexOnline(ent, del);
+				else
+					lst = ent.host.diffo.__getIndexDb(ent.host, ent);
+			} catch (Exception e) {
+				error = true;
+				this.e = e;
+			}
+		}
+	}
+	class Zy implements Callable<List<PiObject>>{
+		boolean error = false;
+		Exception e = null;
+		@Override
+		public List<PiObject> call() {
+			Zz del = new Zz(true, true), act = new Zz(false, true), db = new Zz(true,false);
+			Thread t1 = new Thread(del);
+			Thread t2 = new Thread(act);
+			Thread t3 = new Thread(db);
+			t1.start();
+			t2.start();
+			t3.start();
+			try {
+				t1.join();
+				t2.join();
+				t3.join();
+			} catch (Exception ex) {
+				error = true;
+				this.e = ex;
+			} 
+			error = error || del.error || act.error || db.error;
+			this.e = this.e!=null ? this.e :
+				del.error ? del.e :
+					act.error ? act.e : 
+						db.error ? db.e : null;
+			List<PiObject> objs2 = null;
+			if (!error) {
+				List<PiObject> tmp = act.lst;
+				tmp.addAll(del.lst);
+				act = null; 
+				del = null;
+				objs2 = ent.host.diffo.mergeObjects(ent.host, ent, db.lst, tmp);
+				try {
+					ent.addUpdateQueue(objs2);
+					ent.host.diffo.loopUpdateQueue(ent.updateQueue);
+				} catch (Exception sqle) {
+					error = true;
+					this.e = sqle;
+				}
+			}
+			return objs2; 
+		}
+	}
+	
+	Callable<List<PiObject>> getObjectsIndex(boolean bg) throws IOException, SAXException, SQLException, InterruptedException, ExecutionException {
 		assert side!=null && ent!=null : "Either side or entity are empty";
-		boolean bg = false;
 		final PiHost p = ent.host;
 		final Diffo d = side.root.d;
 		if (side.side==Side.Repository && ent.intname.equals("workspace")) {
 			objs = new ArrayList<PiObject>(100);
 			for (SWCV s: p.swcv.values()) objs.add(s);
 		} else if (bg && ent.is_indexed)  {
-			Thread t = new Thread(new Runnable(){
-				@Override
-				public void run() {
-					List<PiObject> act=null, del=null, db=null;
-					try {
-						act = p.askIndexOnline(ent, false);
-						del = p.askIndexOnline(ent, true);
-						db = d.__getIndexDb(p, ent);
-						act.addAll(del);
-						objs = d.mergeObjects(p, ent, db, act);
-						ent.addUpdateQueue(objs);
-						ent.host.diffo.loopUpdateQueue(ent.updateQueue);
-					} catch (Exception e) {
-						e.printStackTrace();
-					} finally {
-					}
-				}
-			});
-			t.start();
+			return new Zy();
 		} else if (ent.is_indexed) {
 			List<PiObject> act = p.askIndexOnline(ent, false), 
 					del = p.askIndexOnline(ent, true);
@@ -86,6 +135,7 @@ class HierEnt implements Hier {
 			ent.addUpdateQueue(objs);
 			ent.host.diffo.loopUpdateQueue(ent.updateQueue);
 		}
+		return null;
 	}
 }
 class HierObj implements Hier {

@@ -1,5 +1,7 @@
 package com.pinternals.diffo;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -12,20 +14,23 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.GZIPOutputStream;
 
 import org.xml.sax.SAXException;
 
 import sun.misc.BASE64Encoder;
+
+import com.pinternals.diffo.PiObject.Kind;
 
 public class PiHost {
 	private static Logger log = Logger.getLogger(Diffo.class.getName());
@@ -39,7 +44,7 @@ public class PiHost {
 	protected Diffo diffo = null;
 	protected Connection hostdb = null;
 	String hostdbfn = null; 
-	private PreparedStatement psInboxIns=null, psInboxDel=null, psGP = null; 
+//	private PreparedStatement psInboxIns=null, psInboxDel=null, psGP = null; 
 	private static final Lock lock = new ReentrantLock();
 
 	public URL uroot;
@@ -47,6 +52,7 @@ public class PiHost {
 //	private CPACache cpacache = null;
 	private int timeoutMillis=30000;
 	private Proxy proxy = null;
+	public File cachedir = null; 
 
 	public HashMap<String,PiEntity> entities = new HashMap<String,PiEntity>(20);
 //	public boolean ime_sapcom = false, ime_customer = false;
@@ -64,8 +70,10 @@ public class PiHost {
 		this.host_id = host_id;
 		this.hostdb = hostdb;
 		this.hostdbfn = "";
-		psGP = DUtil.prepareStatement(hostdb, "hosql_getpayload");
+//		psGP = DUtil.prepareStatement(hostdb, "hosql_getpayload");
 		timeoutMillis=30000;
+		cachedir = new File(DUtil.cachedir + File.separator + sid);
+		cachedir.mkdir();
 		log.config("TODO: add config for PiHost"); //TODO
 	}
 	public void close() throws SQLException {
@@ -144,46 +152,69 @@ public class PiHost {
 	 * @param side		для какой стороны составлять индекс
 	 * @param thrcnt	число тредов
 	 */
-	protected List<PiEntity> getMetaOnline(Side side) throws IOException, InterruptedException, SAXException, ExecutionException {
-		assert side!=null;
+	protected List<PiEntity> getMetaOnline(Side ... sides) 
+			throws IOException, InterruptedException, SAXException, ExecutionException {
 		// всё скачать и построить карту
 		List<PiEntity> es = new ArrayList<PiEntity>(200);
-		if (side == Side.SLD) return es;
-		final URL u = side.url(uroot);
-		final HTask hDocs = new HTask("refreshMetaIdx", establishGET(u, true));
-		List<FutureTask<HTask>> queue = new LinkedList<FutureTask<HTask>>();
-		FutureTask<HTask> t = HUtil.addHTask(hDocs);
-		t.get();
+		List<FutureTask<HTask>> queue = new LinkedList<FutureTask<HTask>>()
+				, nq = new LinkedList<FutureTask<HTask>>()
+				;
+		int j=0, a=0;
 		
-		if (hDocs.ok) {
-			SQEntityAttr sq = PiEntity.parse_ra(hDocs.bis, "types");
-			 
-			for (int i=0; i<sq.size; i++) {
-				PiEntity e = new PiEntity(this, 0, side, sq.matrix[i][0], sq.matrix[i][1], i, null); 
-				es.add(e);
-				if (log.isLoggable(Level.FINEST)) log.finest("collectDocsRA: extracted " + e.intname);
-				HTask h = e.collectRA(this);
-				h.refObj = e;
-				queue.add(HUtil.addHTask(h));
+		for (Side side: sides) {
+			URL u = side.url(uroot);
+			HTask hDocs = new HTask("refreshMetaIdx", establishGET(u, true));
+			FutureTask<HTask> t = DUtil.addHTask(hDocs);
+			hDocs = t.get();	// список сущностей, его надо ждать обязательно
+		
+			while (!hDocs.ok && a++<10) {
+				t = DUtil.addHTask(hDocs.reset(establishGET(u, true)));
+				hDocs = t.get();
 			}
-
+			if (hDocs.ok) {
+				SQEntityAttr sq = PiEntity.parse_ra(hDocs.bis, "types");
+	
+				for (int i=0; i<sq.size; i++) {
+					PiEntity e = new PiEntity(this, 0, side, sq.matrix[i][0], sq.matrix[i][1], i, null); 
+					es.add(e);
+					if (log.isLoggable(Level.FINEST)) log.finest("collectDocsRA: extracted " + e.intname);
+					HTask h = e.collectRA(this);
+					queue.add(DUtil.addHTask(h));
+					j++;
+				}
+			} else {
+				throw new RuntimeException("Can't parse failed entity list. " + hDocs);
+			}
+		}	
+		while (j>0) {
 			for (FutureTask<HTask> x: queue) {
 				HTask h = x.get();
-				assert h.rc == 200 : "Non-successfull http rc: " + h.rc + " for OK HTask" + h.name; 
-				assert h.bis!=null : "Empty bis for " + h.hc.getURL().toExternalForm() + " " + h.method + " " + h.post;
 				PiEntity e = (PiEntity)h.refObj;
-				assert e!=null;
-				sq = PiEntity.parse_ra(h.bis, "result");
-				e.addRA(sq);
-				queue.remove(h);
+				if (h.rc==200) {
+					assert h.bis!=null : "Empty bis for " + h.hc.getURL().toExternalForm() + " " + h.method + " " + h.post;
+					assert e!=null;
+					SQEntityAttr sq = PiEntity.parse_ra(h.bis, "result");
+					e.addRA(sq);
+					j--;
+				} else {
+					log.severe(DUtil.format("PiHost02gmf", h.rc, e));
+					h = e.collectRA(this);
+					nq.add(DUtil.addHTask(h));
+				}
 			}
+			queue.clear();
+			queue.addAll(nq);
+			nq.clear();
 		}
 		return es;
 	}
 	protected void addEntity(PiEntity e) {
 		assert e.side!=null && e.intname!=null && !e.intname.isEmpty() : "tried to add invalid entity";
 		entities.put(e.toString(), e);
-		log.config("configured entity " + e);
+		if (e.lastDtFrom!=0)
+			log.config(DUtil.format("PiHost01addEntity", e, e.is_indexed?"indexed":"unused", new Date(e.lastDtFrom), e.lastAffected));
+		else
+			log.config(DUtil.format("PiHost01addEntity2", e, e.is_indexed?"indexed":"unused"));
 	}
 	public PiEntity getEntity(Side side, String intname) {
 		assert side!=null && intname!=null;
@@ -255,28 +286,125 @@ public class PiHost {
 		assert e!=null : "Entity must be present";
 		
 		if (log.isLoggable(Level.CONFIG)) 
-			log.config("askIndex started for entity " + e.intname + " deleted=" + del);
+			log.info(DUtil.format("PiHost10idx", e, del));
 
 		List<PiObject> rez = new LinkedList<PiObject>();
 		HTask ha = e.makeOnlineHTask(this, del);
-		FutureTask<HTask> fa = HUtil.addHTask(ha);
+		FutureTask<HTask> fa = DUtil.addHTask(ha);
 
 		int cnt = 0;
 		try {
 			ha = fa.get();
-			while (ha.bis == null && cnt<1) {
-				fa = HUtil.addHTask(ha);
+			while (!ha.ok && cnt++<10) {
+				log.severe(DUtil.format("PiHost11retry", e, del, cnt));
+				fa = DUtil.addHTask(ha);
 				ha = fa.get();
-				cnt++;
 			}
 		} catch (Exception ignore) {}
-		if (ha.bis==null) {
+		if (!ha.ok) {
 			log.severe("Can't read index for " + e + " after " + cnt + " attempts");
 		} else {
 			SimpleQueryHandler sqh = PiEntity.handleStream(ha.bis);
 			e.parse_index(rez, sqh, del);
 		}
 		return rez;
+	}
+	
+	PreparedStatement psUnk = null, psUnks = null, psUnkd = null, psOLP = null, psPrev = null, psUpdp=null, psDelp=null;
+
+	void downloadObject(PiObject o) throws SQLException, MalformedURLException, IOException {
+		assert o!=null : "Null pointer to object";
+		assert o.kind == Kind.MODIFIED || o.kind == Kind.UNKNOWN;
+		assert o.is_dirty : "Dirty flag isn't set";
+		assert o.e!=null : "Entity reference is null";
+		assert !o.deleted : "Object is deleted, nothing to download";
+		assert o.objectid!=null && o.versionid!=null : "Broken object -- objectid or versionid unknown";
+		assert o.qryref!=null || !o.qryref.isEmpty() : "Unknown object reference. Nothing to download";
+		assert !o.inupdatequeue : "Object is still in update queue";
+		
+		assert hostdb!=null && !hostdb.isClosed() && !hostdb.isReadOnly() : "host DB error";
+		
+		//hosql_inbox_unk=SELECT inbox_id,url,dlcount FROM inbox;
+//		if (psUnk==null) psUnk = DUtil.prepareStatement(hostdb, "hosql_inbox_unk");
+		//hosql_inbox_unks=SELECT object_ref,object_id,version_id,session_id,url,dlcount FROM inbox WHERE inbox_id=?1;
+//		if (psUnks==null) psUnks = DUtil.prepareStatement(hostdb, "hosql_inbox_unks");
+//		if (psUnkd==null) psUnkd = DUtil.prepareStatement(hostdb, "hosql_inbox_unkd");
+		//hosql_objlink_get=SELECT object_ref,bloz,url FROM objlink WHERE object_id=?1 AND version_id=?2;
+		if (psPrev==null) psPrev = DUtil.prepareStatement(hostdb, "hosql_objlink_get");
+		if (psUpdp==null) psUpdp = DUtil.prepareStatement(hostdb, "hosql_objlink_upd");
+		if (psDelp==null) psDelp = DUtil.prepareStatement(hostdb, "hosql_objlink_del");
+		DUtil.setStatementParams(psPrev, o.objectid, o.versionid, o.qryref);
+		ResultSet rsPrev = psPrev.executeQuery();
+		boolean exist = false;
+		long pref = 0;
+		byte[] pb = null;
+		exist = rsPrev.next();
+		if (exist) {
+			pref = rsPrev.getLong(1);
+			pb = rsPrev.getBytes(2);
+		}
+		// существует в БД, был уже скачан ранее
+		if (exist && pb!=null) {
+			if (pref!=o.refDB) {
+				// обновить ссылку в hostdb
+				DUtil.setStatementParams(psUpdp, o.refDB, diffo.session_id, pref, o.objectid, o.versionid);
+				lock.lock();
+				int i = psUpdp.executeUpdate();
+				assert i==1;
+				hostdb.commit();
+				lock.unlock();
+			}
+			o.payloadexist = true;
+			o.ftask = null;
+			log.info("Prev payload found for " + o);
+			return;
+		} 
+		// pb is null, need to download
+		if (exist) {
+			DUtil.setStatementParams(psDelp, pref, o.objectid, o.versionid);
+			lock.lock();
+			int i = psUpdp.executeUpdate();
+			assert i==1;
+			hostdb.commit();
+			lock.unlock();
+			log.info("Prev payload record without blob deleted for " + o);
+		}  
+//		System.out.println("refDB=" + o.refDB);
+		HTask gi = new HTask("payload."+o.e+"."+o.refDB, establishGET(new URL(o.qryref), true));
+		o.payloadexist = false;
+		o.ftask = DUtil.addHTask(gi);
+		log.info("New payload DL task for object " + o);
+	}
+	void updatePayload(PiObject o, HTask h) throws SQLException, MalformedURLException, IOException {
+		if (psOLP==null) psOLP = DUtil.prepareStatement(hostdb, "hosql_objlink_ins");
+		assert o.ftask!=null;
+		assert o.is_dirty;
+		ByteArrayOutputStream bloz = new ByteArrayOutputStream(500000);
+		GZIPOutputStream z = new GZIPOutputStream(bloz);
+		int i = h.bis.read();
+		while (i!=-1) {
+			z.write(i);
+			i = h.bis.read();
+		}
+		z.finish();
+		z.flush();
+		lock.lock();
+		DUtil.setStatementParams(psOLP, o.refDB, o.objectid, o.versionid, diffo.session_id, o.qryref, bloz.toByteArray(), o.attempts);
+		try {
+			i = psOLP.executeUpdate();
+			assert i==1 : "Record isn't updated";
+		} catch (SQLException se) {
+			log.severe("Error when putting payload for " + o + "\n" + se + "\n" + o.refDB + 
+					"\n" + UUtil.getStringUUIDfromBytes(o.objectid) + 
+					"\n" + UUtil.getStringUUIDfromBytes(o.versionid) +
+					"\n" + o.qryref
+					);
+			throw new SQLException(se);
+		}
+//		hostdb.commit();
+		lock.unlock();
+		o.ftask = null;
+		o.payloadexist = true;
 	}
 
 //	private CPACache askCpaCache() throws IOException {
@@ -326,47 +454,47 @@ public class PiHost {
 //		}
 //		return b;
 //	}
-	public void addObject(PiObject o, long session_id) throws SQLException {
-		// TODO: написать тексты для ассертов
-		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
-		if (psInboxDel==null) psInboxDel = DUtil.prepareStatement(hostdb, "hosql_inbox_del");
-		if (psInboxIns==null) psInboxIns = DUtil.prepareStatement(hostdb, "hosql_inbox_ins");
-		
-		
-//		hosql_insOV_dirty=INSERT INTO inbox (object_ref,object_id,version_id,session_id,url) \
-//	    VALUES (?1,?2,?3,?4,?5);
-		assert o!=null;
-		assert session_id!=0 && session_id!=-1;
-		assert o.refDB!=0;
-		assert o.objectid!=null;
-		assert o.versionid!=null;
-		assert o.qryref!=null;
-		assert !o.deleted : "tried to add deleted object " + o;
-		DUtil.setStatementParams(psInboxIns, o.refDB, o.objectid, o.versionid, session_id, o.qryref);
-		DUtil.setStatementParams(psInboxDel, o.objectid, o.versionid);
-		psInboxDel.addBatch();
-		psInboxIns.addBatch();
-	}
+//	public void addObject(PiObject o, long session_id) throws SQLException {
+//		// TODO: написать тексты для ассертов
+//		assert hostdb != null && !hostdb.isClosed() && !hostdb.isReadOnly();
+//		if (psInboxDel==null) psInboxDel = DUtil.prepareStatement(hostdb, "hosql_inbox_del");
+//		if (psInboxIns==null) psInboxIns = DUtil.prepareStatement(hostdb, "hosql_inbox_ins");
+//		
+//		
+////		hosql_insOV_dirty=INSERT INTO inbox (object_ref,object_id,version_id,session_id,url) \
+////	    VALUES (?1,?2,?3,?4,?5);
+//		assert o!=null;
+//		assert session_id!=0 && session_id!=-1;
+//		assert o.refDB!=0;
+//		assert o.objectid!=null;
+//		assert o.versionid!=null;
+//		assert o.qryref!=null;
+//		assert !o.deleted : "tried to add deleted object " + o;
+//		DUtil.setStatementParams(psInboxIns, o.refDB, o.objectid, o.versionid, session_id, o.qryref);
+//		DUtil.setStatementParams(psInboxDel, o.objectid, o.versionid);
+//		psInboxDel.addBatch();
+//		psInboxIns.addBatch();
+//	}
 	
-	public void commitObject() throws SQLException {
+	public void commitHostDb() throws SQLException {
 		lock.lock();
 		try {
-			if (psInboxDel!=null) psInboxDel.executeBatch();
-			if (psInboxIns!=null) psInboxIns.executeBatch();
+//			if (psInboxDel!=null) psInboxDel.executeBatch();
+//			if (psInboxIns!=null) psInboxIns.executeBatch();
 			hostdb.commit();
         } finally {
             lock.unlock();
         }
 	}
-	public void executeUpdate(boolean commit, PreparedStatement ... ps) throws SQLException {
-		lock.lock();
-		try {
-			for (PreparedStatement p: ps) p.executeUpdate();
-			if (commit) hostdb.commit();
-        } finally {
-            lock.unlock();
-        }
-	}
+//	public void executeUpdate(boolean commit, PreparedStatement ... ps) throws SQLException {
+//		lock.lock();
+//		try {
+//			for (PreparedStatement p: ps) p.executeUpdate();
+//			if (commit) hostdb.commit();
+//        } finally {
+//            lock.unlock();
+//        }
+//	}
 //	int threadcount = 0;
 //	ArrayList<PayloadFetcher> alPF = null;
 //
@@ -487,7 +615,8 @@ public class PiHost {
 	}
 
 	protected ResultSet getPayload(long ref, byte[] version_id) throws SQLException {
-		return DUtil.setStatementParams(psGP, ref, version_id).executeQuery();
+		//TODO:
+		return null; //DUtil.setStatementParams(psGP, ref, version_id).executeQuery();
 		
 	}
 	public static boolean createHostDB(Connection hostcon) throws SQLException {
@@ -528,10 +657,10 @@ public class PiHost {
 		List<SWCV> def = new ArrayList<SWCV>(30), deps = new ArrayList<SWCV>(100);
 
 		HTask h = new HTask("SWCVdef", establishPOST(Side.Repository.url(uroot), true), SWCV.qdef);
-		FutureTask<HTask> t = HUtil.addHTask(h);
+		FutureTask<HTask> t = DUtil.addHTask(h);
 
 		HTask hd = new HTask("SWCVdep", establishPOST(Side.Repository.url(uroot), true), SWCV.qdeps);
-		FutureTask<HTask> td = HUtil.addHTask(hd);
+		FutureTask<HTask> td = DUtil.addHTask(hd);
 
 		h = t.get();
 		assert h.ok : "SWCVdef extraction problem";

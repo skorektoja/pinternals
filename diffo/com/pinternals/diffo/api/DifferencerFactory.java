@@ -41,7 +41,7 @@ public class DifferencerFactory {
 		try {
 			PiHost pihost = diffo.addPiHost(sid, url);
 			pihost.setUserCredentials(user, password);
-			diffo.refreshMeta(pihost);
+			diffo.refreshMeta(pihost, false);
 			Side[] sides = { Side.Repository, Side.Directory, Side.SLD };
 			for (Side side : sides) {
 				DifferencerNode side_root = new DifferencerNode(side.toString());
