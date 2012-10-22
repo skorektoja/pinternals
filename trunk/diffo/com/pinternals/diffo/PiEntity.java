@@ -41,7 +41,7 @@ public class PiEntity {
 	public boolean ok = false;
 	public boolean is_indexed = false;
 	protected PiHost host = null;
-	private Long lastDtFrom = null;
+	protected long lastDtFrom = 0, lastAffected = 0;
 	protected long affected = 0, minDT = 0;
 	
 	protected PiEntity (PiHost p, long entity_id, Side side, String intname, String title, int seqno, Boolean is_indexed) {
@@ -60,19 +60,13 @@ public class PiEntity {
 		} else 
 			this.is_indexed = is_indexed;
 	}
-	protected void setLastInfo(Long minDT1, Long affected) {
-		if (affected!=null && affected.longValue()>0)
-			lastDtFrom = minDT1;
-		else
-			lastDtFrom = null;
-	}
 	synchronized protected void incAffected() {
 		affected++;
 	}
 	synchronized public void addUpdateQueue(List<PiObject> coming) {
 		if (updateQueue==null) updateQueue = new LinkedList<PiObject>();
 		for (PiObject n: coming) {
-			if (!n.inupdatequeue && !updateQueue.contains(n)) {
+			if (n.is_dirty && !n.inupdatequeue && !updateQueue.contains(n)) {
 				n.inupdatequeue = true;
 				updateQueue.add(n); 
 			}
@@ -111,6 +105,7 @@ public class PiEntity {
 				side == Side.Repository ? queryRep : 
 					side == Side.Directory? queryDir : 
 						(new RuntimeException("PiEntity: unknown side. Not implemented yet!")).toString() );
+		h.refObj = this;
 		return h;
 	}
 	@Override
@@ -183,7 +178,7 @@ public class PiEntity {
 	HTask makeOnlineHTask (PiHost p, boolean deleted) throws MalformedURLException, IOException {
 		String nm = "idx_" + (deleted ? "deleted_" : "active_") + intname
 				, qry = "", sync = "syncTabL=true&", dt="", deld="deletedL=D&", alive="deletedL=N&";
-		if (lastDtFrom!=null) {
+		if (lastDtFrom!=0) {
 			Date d = new Date(lastDtFrom-5*24*60*60*1000);
 			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 			dt = sdf.format(d);
@@ -213,12 +208,12 @@ class PiObject {
 	
 	static String TPL_SWCV = "&VC=SWC&SWCGUID=", TPL_SP="&SP=";
 	Kind kind = Kind.NULL;
-	boolean is_dirty = true, deleted, inupdatequeue=false;
+	boolean is_dirty = true, deleted, inupdatequeue=false, payloadexist=false;
 	PiEntity e;
 	String   qryref;
 	byte[]   objectid,versionid;
-	long     refDB=-1, refSWCV=-1;
-	FutureTask<HTask> task = null;
+	long     refDB=-1, refSWCV=-1, attempts=0;
+	FutureTask<HTask> ftask = null;
 	PiObject previous = null;		// предыдущий найденный в БД
 
 	Long refSWCVsql() {
@@ -261,13 +256,11 @@ class PiObject {
 		
 		byte swcvid[] = UUtil.getBytesUUIDfromString(tswcv);
 		long sp = Long.parseLong(tsp);
-		long ref = -1;
 		for (SWCV s: p.swcv.values()) {
 			if ((UUtil.areEquals(swcvid, s.ws_id)) && sp==s.sp) {
 				return s.refDB;
 			} 
 		}
-//		Object[] o = new Object[]{UUtil.getBytesUUIDfromString(swcv), Long.parseLong(sp)};
 		return -1L;
 	}
 	public int equalAnother(PiObject an) {
@@ -280,10 +273,6 @@ class PiObject {
 		else
 			return 0; // объект не найден
 	}
-//	public void pawtouch() {
-//		if (inupdatequeue) return;
-//		if (is_dirty) e.addUpdateQueue(this);
-//	}
 }
 
 class SWCV extends PiObject {

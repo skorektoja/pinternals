@@ -3,8 +3,10 @@ package com.pinternals.diffo;
 import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.Proxy;
+import java.net.URL;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -39,9 +41,8 @@ public class Diffo implements IDiffo, Cloneable {
 	
 	public Long session_id = -1L;
 	public Proxy proxy;
-	private int threadsindexing = 5; 
-	private List<Thread> incoming = new LinkedList<Thread>(), 
-			workers = new LinkedList<Thread>();
+//	private List<Thread> incoming = new LinkedList<Thread>(), 
+//			workers = new LinkedList<Thread>();
 
 	/**
 	 * @param dbname путь к файлу БД
@@ -50,7 +51,7 @@ public class Diffo implements IDiffo, Cloneable {
 	public Diffo(String dbname, Proxy prx, int tx) {
 		proxy = prx;
 		dbfile = new File(dbname);
-		threadsindexing = tx;
+		new DUtil(tx);
 		log.entering(Diffo.class.getName(), "Diffo");
 	}
 
@@ -161,7 +162,8 @@ public class Diffo implements IDiffo, Cloneable {
 	}
 
 	public boolean commit() throws SQLException {
-		conn.commit();
+		DUtil.lock();
+		DUtil.unlock(conn);
 		return true; // for using in conditions
 	}
 	public boolean rollback() throws SQLException {
@@ -398,113 +400,85 @@ public class Diffo implements IDiffo, Cloneable {
 	 * " not updated"; return i == 1; }
 	 * 
 	 */ 
-	public void refreshMeta(PiHost p) throws SQLException, IOException, SAXException, InterruptedException, ExecutionException {
-		boolean force = false;
-
+	public void refreshMeta(PiHost p, boolean force) throws SQLException, IOException, SAXException, InterruptedException, ExecutionException {
 		List<PiEntity> db, online, mrgd = new LinkedList<PiEntity>();
-		db = getMetaDB(p, Side.Repository);
-		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Repository)) {
-			online = p.getMetaOnline(Side.Repository);
-			mergeMeta(mrgd, db, online);
-			commit();
+		db = getMetaDB(p, Side.Repository, Side.Directory, Side.SLD);
+		log.config(DUtil.format("Diffo10mergeMeta1", "DB", db.size()));
+		boolean b = db.isEmpty() || force;
+		if (b) {
+			online = p.getMetaOnline(Side.Directory, Side.Repository, Side.SLD);
+			log.config(DUtil.format("Diffo10mergeMeta1", "ONLINE", online.size()));
+			long freshed = mergeMeta(mrgd, db, online);
+			if (freshed!=0) mrgd = getMetaDB(p, Side.Directory, Side.Repository, Side.SLD);
 		} else
-			mrgd.addAll(db);
-		
-		db = getMetaDB(p, Side.Directory);
-		if ((db.isEmpty() || force) && p.isSideAvailable(Side.Directory)) {
-			online = p.getMetaOnline(Side.Directory);
-			mergeMeta(mrgd, db, online);
-			commit();
-		} else
-			mrgd.addAll(db);
-
-//		db = getMetaDB(p, Side.SLD);
-//		if ((db.isEmpty() || force) && p.isSideAvailable(Side.SLD)) {
-//			online = p.getMetaOnline(Side.SLD);
-////			mergeMeta(db, online);
-//			commit();
-//		}
+			mrgd = db;
 		assert mrgd.size()>0;
 		p.entities.clear();
 		for (PiEntity e: mrgd)
 			p.addEntity(e);
-		assert p.entities.size()>0;
+		
+		assert p.entities.size()>0 : "No entities retrieved";
 		assert p.entities.size()==mrgd.size();
 	}
 
-	public List<PiEntity> getMetaDB(PiHost p, Side side) throws SQLException {
-		assert p!=null && side!=null;
+	public List<PiEntity> getMetaDB(PiHost p, Side ... sides) throws SQLException {
+		assert p!=null ;
 		PreparedStatement psa = prepareStatement("sql_ra_getone")
-			, eg = prepareStatement("sql_entities_getside", p.host_id, side.txt());
-		ResultSet rs = eg.executeQuery(), rsa;
-		List<PiEntity> db = new ArrayList<PiEntity>(0);
-		while (rs.next()) {
-			PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4),rs.getLong(5) == 1);
-			rsa = DUtil.setStatementParams(psa, x.entity_id).executeQuery();
-			while (rsa.next())
-				x.addAttr(rsa.getString(1), rsa.getString(2), rsa.getInt(3));
-			// Находим последнее обновление
-			x.setLastInfo(rs.getObject(6)==null ? null : rs.getLong(6), 
-					rs.getObject(7)==null ? null : rs.getLong(7));
-			db.add(x);
+			, eg = prepareStatement("sql_entities_getside");
+		List<PiEntity> db = new ArrayList<PiEntity>(300);
+		for (Side side: sides) {
+			DUtil.setStatementParams(eg, p.host_id, side.txt());
+			ResultSet rs = eg.executeQuery(), rsa;
+			while (rs.next()) {
+				PiEntity x = new PiEntity(p,rs.getLong(1),side,rs.getString(2),rs.getString(3),rs.getInt(4),rs.getLong(5) == 1);
+				rsa = DUtil.setStatementParams(psa, x.entity_id).executeQuery();
+				while (rsa.next())
+					x.addAttr(rsa.getString(1), rsa.getString(2), rsa.getInt(3));
+				// Находим последнее обновление
+				x.lastDtFrom = rs.getLong(6);
+				x.lastAffected = rs.getLong(7);
+				db.add(x);
+			}
 		}
 		return db;
 	}
-	public void mergeMeta(List<PiEntity> mrgd, List<PiEntity> db, List<PiEntity> online) throws SQLException {
+	public long mergeMeta(List<PiEntity> mrgd, List<PiEntity> db, List<PiEntity> online) throws SQLException {
 		PreparedStatement inse = prepareStatement("sql_entities_ins")
 				, insa = prepareStatement("sql_ra_ins");
-		int i, q, sdb = db.size(), sonl = online.size();
+		int freshed=0;
 		for (PiEntity x: online) {
 			PiHost p = x.host;
-			q = db.indexOf(x);
+			int q = db.indexOf(x);
 			if (q == -1) {
 				// Есть онлайн, нету в БД => добавляем
-				log.fine("try to add entity " + x.side.txt() + "|" + x.intname);
 				// INSERT INTO entity(side,internal,host_id,caption,seqno,session_id,is_indexed) VALUES (?1,?2,?3,?4,?5,?6,?7);
 				DUtil.setStatementParams(inse,x.side.txt(),x.intname,p.host_id,x.title,x.seqno,session_id,
 						x.is_indexed ? 1 : 0);
-				i = inse.executeUpdate();
-				assert i==1;
-				x.entity_id = inse.getGeneratedKeys().getLong(1);
+				inse.addBatch();
 				for (ResultAttribute a: x.attrs) {
 					// добавляем и атрибуты
 					// NSERT INTO ra(entity_id,raint,racaption,seqno) VALUES (?1,?2,?3,?4);
-					DUtil.setStatementParams(insa,x.entity_id,a.internal,a.caption,a.seqno);
+					DUtil.setStatementParams(insa,x.side.txt(),x.intname,p.host_id,a.internal,a.caption,a.seqno);
 					insa.addBatch();
 				}
-				insa.executeBatch();
 				mrgd.add(x);
+				freshed++;
 			} else {
-				assert x.attrs.size()==db.get(q).attrs.size() : "Attributes were changeed. System upgraded?";
+				assert x.attrs.size()==db.get(q).attrs.size() : "Attributes were changed. System upgraded?";
 				mrgd.add(x);
-				db.remove(q);
 			}
 		}
-		assert mrgd.size()>sdb || mrgd.size()>sonl : "Merged size too small";
+		if (freshed>0) {
+			DUtil.lock();
+			inse.executeBatch();
+			insa.executeBatch();
+			DUtil.unlock(conn);
+		}
+		return freshed;
 	}
 
 
 	
-	public boolean tickIndexRequestQueue(boolean loop) {
-		boolean b = incoming.size()!=0 || workers.size()!=0;
-		while (b) {
-			if (incoming.size()>0 && workers.size()<threadsindexing) {
-				Thread w = incoming.remove(0);
-				w.start();
-				workers.add(w);
-			}
-			for (Thread w: workers) if (!w.isAlive()) { 
-				workers.remove(w);
-				break;
-			}
-			b = incoming.size()!=0 || workers.size()!=0;
-			b = b && loop;
-		}
-		return incoming.size()!=0 || workers.size()!=0;
-	}
-	
-
-
 	public void askSld(PiHost p) {
 		Side l = Side.SLD;
 		PiEntity slds[] = {
@@ -561,7 +535,7 @@ public class Diffo implements IDiffo, Cloneable {
 	public List<DiffItem> list (PiHost p, Side side, String entname) throws SQLException, IOException, SAXException, InterruptedException, ExecutionException {
 		assert p!=null && p.host_id!=0 : "PiHost isn't initialized";
 		if (p.entities == null || p.entities.size()==0) {
-			refreshMeta(p);
+			refreshMeta(p, false);
 		}
 		return list(p, p.getEntity(side, entname));
 	}
@@ -607,7 +581,7 @@ public class Diffo implements IDiffo, Cloneable {
 	}
 	void shutdown() {
 		log.info(DUtil.format("shutdown_prepare"));
-		HUtil.shutdown();
+		DUtil.shutdown();
 		log.info(DUtil.format("shutdown"));
 	}
 	
@@ -650,7 +624,7 @@ public class Diffo implements IDiffo, Cloneable {
 	 * @throws SQLException
 	 * @throws SAXException
 	 */
-	public void __refreshSWCV(PiHost p, boolean forceOnline) 
+	public void refreshSWCV(PiHost p, boolean forceOnline) 
 		throws IOException, ParseException, SQLException, SAXException, InterruptedException, ExecutionException 
 		{
 		assert p.entities!=null && p.entities.size()>0 && p.getEntity(Side.Repository, "workspace")!=null;
@@ -754,8 +728,9 @@ public class Diffo implements IDiffo, Cloneable {
 		for (SWCV d: db) p.swcv.put(d.refDB, d);
 	}
 	List<PiObject> mergeObjects(PiHost p, PiEntity ent, List<PiObject> db, List<PiObject> online) { 
-		List<PiObject> mrgd = new ArrayList<PiObject>(1000);
+		List<PiObject> mrgd = new ArrayList<PiObject>(10000);
 		for (PiObject o: online) {
+			assert o.e == ent;
 			int r = -1;
 			PiObject sameO = null, sameV = null;
 			for (PiObject d: db) {
@@ -795,7 +770,8 @@ public class Diffo implements IDiffo, Cloneable {
 //		updateQueue.add(o);
 //	}
 	
-	synchronized void loopUpdateQueue(List<PiObject> updateQueue) throws SQLException {
+	void loopUpdateQueue(List<PiObject> updateQueue) throws SQLException, MalformedURLException, IOException, InterruptedException, ExecutionException {
+		// Массовая вставка
 		PreparedStatement insobj = prepareStatement("sql_obj_ins1")
 				, insver = prepareStatement("sql_ver_ins1")	// insver через SWCV_REF
 				, insver2 = prepareStatement("sql_ver_ins2")	// insver без SWCV_REF
@@ -803,11 +779,16 @@ public class Diffo implements IDiffo, Cloneable {
 				, chnobj = prepareStatement("sql_obj_upd2")
 				, chnpver = prepareStatement("sql_ver_upd21")
 				, chninsver = prepareStatement("sql_ver_ins22")
+				, getref1 = prepareStatement("sql_obj_getref1")
+				, getref2 = prepareStatement("sql_obj_getref2")
 				;
 		HashSet<byte[]> ud1 = new HashSet<byte[]>();
 		final Long l1 = new Long(1), l0 = new Long(0);
 		long z=0, zz=0;
 		log.info("Objects in update queue: " + updateQueue.size());
+		
+		List<PiObject> needPayloads = new LinkedList<PiObject>();
+		
 		for (PiObject o: updateQueue) {
 			assert o.kind!=Kind.NULL  : "PiObject w/o need of change was added in update queue " + o; 
 			assert o.inupdatequeue : "PiObject is already in update queue";
@@ -835,6 +816,7 @@ public class Diffo implements IDiffo, Cloneable {
 					}
 					ud1.add(o.objectid);
 					z++;
+					if (!o.deleted) needPayloads.add(o);
 					break;
 				case MODIFIED:
 					assert o.previous!=null : "Reference to previous object isn't set";
@@ -854,11 +836,14 @@ public class Diffo implements IDiffo, Cloneable {
 					DUtil.setStatementParams(chninsver, o.previous.refDB, o.versionid, session_id, l1);
 					chninsver.addBatch();
 					z++;
+					if (!o.deleted) needPayloads.add(o);
+					break;
 				default:
 					break;
 			}
-			System.out.print(".");
+//			System.out.print(".");
 		}
+
 		// Уррра коротким и максимально пакетным транзакциям!
 		DUtil.lock();
 		DUtil.executeBatch(insobj);
@@ -869,10 +854,62 @@ public class Diffo implements IDiffo, Cloneable {
 		DUtil.executeBatch(chninsver);
 		saveStatistic(updateQueue);
 		DUtil.unlock(conn);
+
+		String sen = null; 
+		PiHost p = null; 
+		long pd=0;
+		for (PiObject o: needPayloads) {
+			assert o.inupdatequeue;
+			ResultSet rs = null;
+			if (o.refDB==-1L && o.refSWCV!=-1L) {
+				// need to retrieve updated reference to repository object, for payload link
+				DUtil.setStatementParams(getref1, o.e.host.host_id, o.refSWCV, o.objectid, o.e.entity_id);
+				rs = getref1.executeQuery();
+			} else if (o.refDB==-1L && o.refSWCV==-1L) {
+				// directory or other object
+				DUtil.setStatementParams(getref2, o.e.host.host_id, o.objectid, o.e.entity_id);
+				rs = getref2.executeQuery();
+			} else {
+				assert false: "Unpredicted state: referenceDB=" + o.refDB ;
+			}
+			o.inupdatequeue = false;
+			while (rs.next()) {
+				o.refDB = rs.getLong(1);
+				break;
+			}
+			if (o.refDB==-1L) {
+				log.severe("\n\n\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxxxx //TODO\n\n\n"); //TODO
+			} else {
+//				System.out.println("New object to download " + o);
+				o.e.host.downloadObject(o);
+				pd += o.ftask!=null ? 1 : 0;
+				sen = sen==null ? o.e.toString() : sen;
+				p = p==null ? o.e.host : p;
+			}
+		}
+		
+		while (pd>0) {
+			System.out.println(sen + "|yet in payload queue: " + pd);
+			for (PiObject o: needPayloads) if (o.ftask!=null) {
+				HTask h = o.ftask.get();
+				if (h.ok) {
+//					if (h.attempts>0) log.config("");
+					o.e.host.updatePayload(o, h);
+					pd--;
+				} else if (!h.ok && h.attempts<10){
+					HttpURLConnection c = o.e.host.establishGET(new URL(o.qryref), true);
+					o.ftask = DUtil.addHTask(h.reset(c));
+					System.out.println("Error when download " + h + " attempts=" + h.attempts);
+				} else if (!h.ok)
+					pd--;
+			}
+			p.commitHostDb();
+		}
+		if (p!=null) p.commitHostDb();
 		zz += z;
 		log.info("Objects handled total: " + zz);
 	}
-	synchronized public void saveStatistic(List<PiObject> updateQueue) throws SQLException {
+	public void saveStatistic(List<PiObject> updateQueue) throws SQLException {
 		HashSet<PiEntity> hse = new HashSet<PiEntity>(100);  
 		for (PiObject o: updateQueue) {
 			o.e.incAffected();
@@ -889,6 +926,16 @@ public class Diffo implements IDiffo, Cloneable {
 			e.affected = 0;
 		}
 	}
+	public void cleanobjver() throws SQLException {
+		PreparedStatement ps1 = DUtil.prepareStatement(conn, "sql_cleanobjver1"),
+				ps2 = DUtil.prepareStatement(conn, "sql_cleanobjver2"),
+				ps3 = DUtil.prepareStatement(conn, "sql_cleanobjver3");
+		DUtil.lock();
+		ps1.executeUpdate();
+		ps2.executeUpdate();
+		ps3.executeUpdate();
+		DUtil.unlock(conn);
+	}
 	
 	@Override
 	public boolean refresh(String sid, String url, String user, String password)
@@ -898,8 +945,8 @@ public class Diffo implements IDiffo, Cloneable {
 			PiHost pih = addPiHost(sid, url);
 			pih.setUserCredentials(user, password);
 			HierRoot root =  new HierRoot(this,pih);
-			refreshMeta(pih);
-			__refreshSWCV(pih, false);
+			refreshMeta(pih, false);
+			refreshSWCV(pih, false);
 
 			root.addSide(Side.Repository);
 			root.addSide(Side.Directory);
@@ -908,7 +955,7 @@ public class Diffo implements IDiffo, Cloneable {
 				for (PiEntity v: pih.entities.values())
 					if (v.side == s.side) {
 						HierEnt he = s.addPiEntity(v);
-						he.getObjectsIndex();
+						he.getObjectsIndex(false);
 					}
 		} catch (Exception ce) {
 			throw new RuntimeException(ce);

@@ -3,9 +3,13 @@
  */
 package com.pinternals.diffo;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URL;
@@ -13,11 +17,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.Formatter;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -38,10 +45,23 @@ public class DUtil {
 	public static TreeSet<String> sqlKeySet = new TreeSet<String>(RES_SQL.keySet());
 	private static ResourceBundle RES_MSG = ResourceBundle.getBundle("com.pinternals.diffo.messages");
 	private static final Lock lock = new ReentrantLock();
+	
+//	private static BlockingQueue<Callable> q = new PriorityBlockingQueue<Callable>();
+	public static ExecutorService ex = null;
+	
 	private static boolean locked = false;
-//	private static int lockmax = 1;
-//	private static BlockingQueue<Integer> locks = new ArrayBlockingQueue<Integer>(100);
-
+	public static File cachedir = new File(System.getProperty("java.io.tmpdir") + File.separator + "diffo" + File.separator);
+	public DUtil(int threads) {
+		cachedir.mkdir();
+		log.config(DUtil.format("DUtil04cache", cachedir.getPath()));
+		ex = Executors.newFixedThreadPool(threads);
+		log.config(DUtil.format("DUtil05th", threads));
+	}
+	public static void shutdown() {
+		ex.shutdown();
+		log.info(DUtil.format("HUtil02"));
+	}
+	
 	static boolean assertion() {
 		return true;
 	}
@@ -119,7 +139,8 @@ public class DUtil {
 			throws SQLException {
 		log.entering(DUtil.class.getName(), "prepareStatement");
 		String s = getSql(key);
-		assert c!=null && key!=null && s!=null && !s.isEmpty();
+		assert c!=null : "Connection isn't opened";
+		assert key!=null && s!=null && !s.isEmpty() : "given statement is bad: " + key + s;
 		if (log.isLoggable(Level.FINEST)) {
 			int i = objs==null ? 0 : objs.length;
 			log.fine(DUtil.format("prepareStatement", key, i, s.length()<50?s:s.substring(0,50)+"..."));
@@ -130,16 +151,16 @@ public class DUtil {
 		return ps;
 	}
 
-	static void lock() {
+	static boolean lock() {
 		lock.lock();
 		locked = true;
-		return;
+		return locked;
 	}
-	static void unlock(Connection cn) throws SQLException {
+	static boolean unlock(Connection cn) throws SQLException {
 		cn.commit();
 		lock.unlock();
 		locked = false;
-		return;
+		return locked;
 	}
 
 	public static int executeUpdate(PreparedStatement ps) throws SQLException {
@@ -191,6 +212,28 @@ public class DUtil {
 			b[i++] = y;
 		}
 		return b;
+	}
+
+	synchronized static public FutureTask<HTask> addHTask(HTask h)  {
+		if (log.isLoggable(Level.FINE))
+			log.fine(DUtil.format("HUtil03addHTask", h.name));
+		h.ok = false;
+		FutureTask<HTask> f = new FutureTask<HTask>(h);
+//		int i=0;
+//		while (i++<1) //ex.getPoolSize() < 10 && i++<10
+//			try {
+//				ex.awaitTermination(10, TimeUnit.MILLISECONDS);
+//			} catch (InterruptedException ignore) {
+//				break;
+//			}
+		ex.execute(f);
+		return f;
+	}
+
+	synchronized static void addTask(Runnable f)  {
+		if (log.isLoggable(Level.FINE))
+			log.fine(DUtil.format("DUtil03addTask","unk"));
+		ex.execute(f);
 	}
 }
 
@@ -293,3 +336,110 @@ class SQEntityAttr extends DefaultHandler {
 	}
 }
 
+class HTask implements Callable<HTask> {
+	private static Logger log = Logger.getLogger(HTask.class.getName());
+	Object refObj = null;
+//	String cache = "";
+	HttpURLConnection hc;
+	String name, method, post;
+//	boolean saveCache = false, readCache = false;
+	int rc, attempts=0;
+	ByteArrayInputStream bis = null;
+	boolean ok = false;
+	
+	public String toString() {
+		String s = "HTask " + name + " rc=" + rc + " ok=" + ok;
+		return s;
+	}
+	private File cachefl() {
+		File f = new File(DUtil.cachedir.getAbsolutePath() + File.separator + name + ".html");
+		return f;
+	}
+	HTask (String name, HttpURLConnection hc) {
+		this.name = name;
+		method = "GET";
+		post = null;
+		assert hc.getRequestMethod().equals(method) : "method mismatch";
+		this.hc = hc;
+	}
+	HTask (String name, HttpURLConnection hc, String post) {
+		this.name = name;
+		method = "POST";
+		assert hc.getRequestMethod().equals(method) : "method mismatch";
+		this.post = post;
+		this.hc = hc;
+	}
+	HTask reset(HttpURLConnection hc2) {
+		assert hc2!=null;
+		hc = hc2;
+		attempts++;
+		return this;
+	}
+	void connect() {
+		assert hc != null : "Null HttpURLConnection for HTask";
+		ok = false;
+		if (log.isLoggable(Level.FINE))
+			log.fine(DUtil.format("HTask04connect", name, hc.getURL().toExternalForm()));
+		rc = -1;
+		try {
+			if ("POST".equals(method))
+				DUtil.putPOST(hc, post);
+			hc.connect();
+			rc = hc.getResponseCode();
+			ok = (rc == HttpURLConnection.HTTP_OK);
+		} catch (IOException e) {
+			ok = false;
+			e.printStackTrace();
+		}
+	}
+	public HTask call() {
+		boolean uf = log.isLoggable(Level.FINEST);
+		ByteArrayOutputStream a = null;
+		File flg = uf ? cachefl() : null;
+		PrintStream fos = null;
+		if (log.isLoggable(Level.FINEST)) {
+			try { 
+				flg.createNewFile();
+				fos = new PrintStream(flg);
+				fos.println("Http task " + name + "/" + method);
+				if ("POST".equals(method)) 
+					fos.println(post);
+			} catch (Exception ignore) {
+			}
+		}
+		connect();
+		a = new ByteArrayOutputStream(65536);
+		if (ok) {
+			if (log.isLoggable(Level.CONFIG))
+				log.config(DUtil.format("HTask05call", name));
+			try {
+				int i = hc.getInputStream().read();
+				while (i!=-1) {
+					a.write(i);
+					if (fos!=null) fos.write(i);
+					i = hc.getInputStream().read();
+				}
+			} catch (IOException ex) {
+				ok = false;
+				log.throwing(HTask.class.getCanonicalName(), "call", ex);
+			}
+		} else {
+			log.severe(DUtil.format("HTask06call", name, rc));
+			try {
+				int i = hc.getErrorStream().read();
+				while (i!=-1) {
+					a.write(i);
+					if (fos!=null) fos.write(i);
+					i = hc.getErrorStream().read();
+				}
+			} catch (IOException ex) {
+				log.throwing(HTask.class.getCanonicalName(), "call", ex);
+			}
+		}
+		if (fos!=null) fos.close();
+		hc.disconnect();
+		
+		bis = new ByteArrayInputStream(a.toByteArray());
+		return this;
+	}
+}

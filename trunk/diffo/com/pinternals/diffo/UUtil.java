@@ -134,7 +134,7 @@ public class UUtil {
 		assert areEquals(null, null);
 		assert areEquals(new byte[0], new byte[0]);
 		assert areEquals(ba,ba);
+
 		return true;
 	}
-
 }
