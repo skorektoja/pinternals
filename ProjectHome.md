@@ -1,0 +1,5 @@
+This project was inspired by excellent blogs by [Sunil Chandra](http://scn.sap.com/people/sunil.chandra) and [Michal Krawczyk](http://scn.sap.com/people/michal.krawczyk2) about [Access SAP PI objects simply with SimpleQuery](http://wiki.sdn.sap.com/wiki/display/XI/Access+SAP+PI+objects+simply+with+SimpleQuery) and [Michal's PI tips: How to check all UDFs for a specific line of code - idea](http://scn.sap.com/community/pi-and-soa-middleware/blog/2012/07/03/michals-pi-tips-how-to-check-all-udfs-for-a-specific-line-of-code--idea).
+
+Taking into account that developers suffer from lack of provisioning tool for managing huge amount of namespaces, service interfaces, data- and message types, mappings, UDFs, sender agreements etc. etc. which jumps over landscapes from development systems to QAS and finally climbs to production servers we decide to let people check the difference.
+This tool  compares SAP PI servers and shows the differences  in Eclipse manner.
+You can install plugin to SAP NWDS or any Eclipse > 3.5 or simply use command line version.
